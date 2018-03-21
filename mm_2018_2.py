@@ -393,8 +393,8 @@ keyNames = map(lambda f: f[:-4], dataFiles)
 
 
 keyNames = [ 'cities',
-             'conferences',
              'confTgames',
+             'conferences',
              'gameCities',
              'MasseyOrdinals',
              'tGamesC',
@@ -410,7 +410,8 @@ keyNames = [ 'cities',
              'teamCoaches',
              'teamConferences',
              'teams',
-             'teamSpellings']
+             'teamSpellings'
+             ]
 
 dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFiles)}
 
@@ -426,9 +427,9 @@ gamesDataD = ['tGamesD', 'rGamesD']
 
 
 
-for df in ['rGamesC', 'rGamesD']:
-    dataDict[df].info()
-    dataDict[df].describe()
+#for df in ['rGamesC', 'rGamesD']:
+#    dataDict[df].info()
+#    dataDict[df].describe()
 
 
 
@@ -551,7 +552,7 @@ for df in gamesData:
     
     # Format base/shared columns between wins & loss data
     # Remove wLoc from colsBase (object, would need to parameterize for any value)
-    #colsBaseTemp = filter(lambda c: c in colsBase + ['scoreGap'], dataDict[df].columns.tolist())
+    colsBaseTemp = filter(lambda c: c in colsBase + ['scoreGap'], dataDict[df].columns.tolist())
     colsBaseTemp = filter(lambda c: c != 'WLoc', colsBaseTemp)    
     
     winDF = dataDict[df].loc[:, colsBaseTemp + colsWinTemp]
