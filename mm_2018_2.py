@@ -777,17 +777,6 @@ for df in map(lambda n: n + 'SeasonStatsMatchup', gamesData):
          dataDict[df][stat[0]] = dataDict[df]['W' + stat[1]] - dataDict[df]['L' + stat[1]]
 
 
-
-#==============================================================================
-# ADD OVERALL SEED AVERAGE METRICS TO TOURNAMENT DATA
-#==============================================================================
-for df in filter(lambda n: n.startswith('t'), gamesData):
-    
-    for t in ['W', 'L']:
-        dataDict[df + 'SeasonStatsMatchup'] = dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[df + 'SeedStats'], 
-                                                                                         left_on = t + 'seedRank', 
-                                                                                         right_index = True)
-
 #==============================================================================
 # CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
 #==============================================================================
