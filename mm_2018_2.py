@@ -794,7 +794,7 @@ colSumStatMatchup = colSumStatMatchup.sort_values(by = 'colName')
 # CORRELATION ANALYSIS
 #==============================================================================
 
-
+x = dataDict[df].corr()
 
 #==============================================================================
 # CORRELATION ANALYSIS
