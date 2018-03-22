@@ -350,8 +350,8 @@ def timer(sigDigits = 3):
         #global startTime        
 
 
-
-location = 'dsw'
+#location = 'dsw'
+location = 'home'
 
 if location.strip().lower() == 'home':
   # Home setup
@@ -523,9 +523,10 @@ for df in gamesData:
 
   # Label column types
   colsWin = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
-                colSumDict[df]['colName'].values.tolist())
+                   dataDict[df].columns.tolist())
   colsLoss = filter(lambda c: c.startswith('L'), 
-                 colSumDict[df]['colName'].values.tolist())
+                    dataDict[df].values.tolist())
+
   
   for colName, colList in [('colsBase', colsBase), 
                            ('colsWin', colsWin), 
@@ -677,14 +678,19 @@ for df in filter(lambda n: n.startswith('t'), gamesData):
 # CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
 #==============================================================================
 # Create list of unique columns in all games DataFrames
-colSumDict['teams'] = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
-                    map(lambda g: g + 'TeamSeasonStats', gamesData)]
+for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
+    colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], returnDF=True)
 
-colSumDict['teams'] = pd.DataFrame(list(set(list(chain(*colSummaryTeam)))),
-                          columns = ['colName', 'colDataType', 'isObject'])
-
-colSumDict['teams'] = colSummaryTeam.sort_values(by = 'colName')
-
+#==============================================================================
+# colSumDict['teams'] = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
+#                     map(lambda g: g + 'TeamSeasonStats', gamesData)]
+# 
+# colSumDict['teams'] = pd.DataFrame(list(set(list(chain(*colSummaryTeam)))),
+#                           columns = ['colName', 'colDataType', 'isObject'])
+# 
+# colSumDict['teams'] = colSummaryTeam.sort_values(by = 'colName')
+# 
+#==============================================================================
 
 #==============================================================================
 # MERGING DATASETS & MISSING DATA FILL
@@ -766,6 +772,8 @@ colSumDict['teams'] = colSummaryTeam.sort_values(by = 'colName')
 # CREATE NEW MATCHUPS USING TEAM SEASON STATISTICS
 # 
 # ADD TOURNAMENT SEED STATISTICS TO TOURNAMENT DATAFRAMES
+#
+# CALCULATE MATCHUP PAIRS FOR DUMMIES
 #==============================================================================
 
 
@@ -778,8 +786,7 @@ for df, dfM in zip(gamesData, map(lambda n: n + 'TeamSeasonStats', gamesData)):
         # Rename columns before merging
         renameDict = dict(zip(dataDict[dfM].columns.tolist(),
                           map(lambda n: t + n, dataDict[dfM].columns.tolist())))
-        
-        winLossColNames =   map(lambda n: t + n, dataDict[dfM].columns.tolist())     
+            
         
         # Merge DataFrames
         dataDict[df + 'SeasonStatsMatchup'] = dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[dfM].rename(columns = renameDict),
@@ -802,7 +809,33 @@ for df, dfM in zip(gamesData, map(lambda n: n + 'TeamSeasonStats', gamesData)):
                                                           right_index = True)
                                                 )
 
-del(renameDict, seedNameDict, winLossColNames)
+     # Calculate matchup pairs
+     for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
+         dataDict[df][matchup[0]] = generateMatchupField(df = dataDict[df], 
+                                                         matchupName = matchup[1], 
+                                                         label1 = 'W', 
+                                                         label2 = 'L')
+
+    # Cacluate column stats
+    colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
+
+
+    # Generate new dataframe with deltas between winning and losing teams
+    # NEED TO ADD BASE COLUMNS
+############################################
+    numericCols =  colSumDict[df + 'SeasonStatsMatchup'][~colSumDict[df + 'SeasonStatsMatchup']['isObject']]['colName'].values.tolist()  
+    colsWinTemp = filter(lambda c: c.startswith('W') & (c != 'WLoc') & (c != 'WTeamID'),
+                  numericCols)
+    colsLossTemp = filter(lambda c: c.startswith('L') & (c != 'LTeamID'), 
+                   numericCols)
+
+    
+    dataDict[df + 'SeasonStatsMatchupDeltas'] = pd.DataFrame(zip(*[dataDict[df + 'SeasonStatsMatchup'][colWin] - dataDict[df + 'SeasonStatsMatchup'][colLoss] 
+                                for colWin, colLoss in zip(colsWinTemp, colsLossTemp)]),
+                                           columns = map(lambda colName: colName[1:] + 'Delta',
+                                                         colsWinTemp))
+
+del(renameDict, seedNameDict)
 
 
 #==============================================================================
@@ -816,7 +849,8 @@ for df in map(lambda n: n + 'SeasonStatsMatchup', gamesData):
                                                          matchupName = matchup[1], 
                                                          label1 = 'W', 
                                                          label2 = 'L')
-         
+     
+     colSumDict[df] =  generateDataFrameColumnSummaries(dataDict[df], returnDF=True)  
      # Score gap, seedRank delta, and OrdinalRank delta
      for stat in [('scoreGap', 'Score'), 
                   ('seedDelta', 'seedRank'), 
