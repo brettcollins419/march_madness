@@ -35,10 +35,6 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report, confusion_matrix, auc, roc_auc_score, accuracy_score
 
 
-dataFolder = 'C:\\Users\\brett\\Documents\\march_madness_ml\\datasets\\2018\\'
-
-os.chdir('C:\\Users\\brett\\Documents\\march_madness_ml\\')
-
 
 '''Analysis steps
 1. Read Data
@@ -76,11 +72,12 @@ Expansions: encode conference / matchups
 # START FUNCTIONS 
 #==============================================================================
 
-def generateDataFrameColumnSummaries(df):
+def generateDataFrameColumnSummaries(df, returnDF = False):
     '''Create summary for each column in df as a tuple:
         (column Name, column type, is object boolean)
         
-    Return list of tuples'''
+    Return list of tuples.
+    If returnDF == True, return a pandas dataframe'''
 
     colSummary = map(lambda c: (c, 
                                 df[c].dtype.type,
@@ -88,6 +85,10 @@ def generateDataFrameColumnSummaries(df):
                     df.columns.tolist()
                     )
                     
+    if returnDF == True:
+      colSummary = pd.DataFrame(colSummary,
+                                columns = ['colName', 'colDataType', 'isObject'])
+    
     return colSummary
 
 
@@ -350,13 +351,27 @@ def timer(sigDigits = 3):
 
 
 
+location = 'dsw'
+
+if location.strip().lower() == 'home':
+  # Home setup
+  dataFolder = 'C:\\Users\\brett\\Documents\\march_madness_ml\\datasets\\2018\\'
+  os.chdir('C:\\Users\\brett\\Documents\\march_madness_ml\\')
+  
+else:
+  # DSW setup
+  dataFolder = '/home/cdsw/data/'
+  %matplotlib inline
+
+        
 
 #==============================================================================
 # LOAD DATA 
 #==============================================================================
 
 # Read data
-dataFiles = os.listdir('datasets\\2018')
+dataFiles = os.listdir(dataFolder)
+dataFiles.sort()
 
 # Remove zip files
 dataFiles = filter(lambda f: '.csv' in f, dataFiles)
@@ -375,11 +390,11 @@ dataFiles = filter(lambda f: '.csv' in f, dataFiles)
 #==============================================================================
 
 keyNames = map(lambda f: f[:-4], dataFiles)
-keyNames
+
 
 keyNames = [ 'cities',
-             'conferences',
              'confTgames',
+             'conferences',
              'gameCities',
              'MasseyOrdinals',
              'tGamesC',
@@ -395,7 +410,8 @@ keyNames = [ 'cities',
              'teamCoaches',
              'teamConferences',
              'teams',
-             'teamSpellings']
+             'teamSpellings'
+             ]
 
 dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFiles)}
 
@@ -411,14 +427,22 @@ gamesDataD = ['tGamesD', 'rGamesD']
 
 
 
-for df in ['rGamesC', 'rGamesD']:
-    dataDict[df].info()
-    dataDict[df].describe()
+#for df in ['rGamesC', 'rGamesD']:
+#    dataDict[df].info()
+#    dataDict[df].describe()
 
 
 
+# Generate dict
+colSumDict = {}  
+    
 
 # Create list of unique columns in all games DataFrames
+
+for df in gamesData:
+  colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], 
+                                                    returnDF=True)
+
 colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
 
 colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
@@ -468,6 +492,10 @@ for df in gamesDataD:
 #==============================================================================
 # IDENTIFY COLUMN TYPES AND UPDATE COLUMN SUMMARIES WITH NEW COLUMNS
 #==============================================================================
+
+
+
+
 # Create list of unique columns in all games DataFrames
 colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
 
@@ -477,20 +505,34 @@ colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
 colSummary = colSummary.sort_values(by = 'colName')
 
 
+# Generate dict
+colSumDict = {}  
+  
 # Label column types
 colsWin = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
               colSummary['colName'].values.tolist())
 colsLoss = filter(lambda c: c.startswith('L'), 
                colSummary['colName'].values.tolist())
 colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT']   
-    
 
-for colName, colList in [('colsBase', colsBase), 
-                         ('colsWin', colsWin), 
-                         ('colsLoss', colsLoss)]:
-    
-    colSummary[colName] = map(lambda c: c in colList,
-                              colSummary['colName'].values.tolist())
+
+# Create list of unique columns in all games DataFrames
+for df in gamesData:
+  colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], 
+                                                    returnDF=True)
+
+  # Label column types
+  colsWin = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
+                colSumDict[df]['colName'].values.tolist())
+  colsLoss = filter(lambda c: c.startswith('L'), 
+                 colSumDict[df]['colName'].values.tolist())
+  
+  for colName, colList in [('colsBase', colsBase), 
+                           ('colsWin', colsWin), 
+                           ('colsLoss', colsLoss)]:
+      
+      colSumDict[df][colName] = map(lambda c: c in colList,
+                                    colSumDict[df]['colName'].values.tolist())
 
 
 
@@ -499,9 +541,14 @@ for colName, colList in [('colsBase', colsBase),
 #==============================================================================
 for df in gamesData:
 
+    colsWinTemp = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
+                  dataDict[df].columns.tolist())
+    colsLossTemp = filter(lambda c: c.startswith('L'), 
+                   dataDict[df].columns.tolist())
+
     # Split wins and loss data (specific for each dataframe)
-    colsWinTemp = filter(lambda c: c in colsWin, dataDict[df].columns.tolist())
-    colsLossTemp = filter(lambda c: c in colsLoss, dataDict[df].columns.tolist())
+    #colsWinTemp = filter(lambda c: c in colsWin, dataDict[df].columns.tolist())
+    #colsLossTemp = filter(lambda c: c in colsLoss, dataDict[df].columns.tolist())
     
     # Format base/shared columns between wins & loss data
     # Remove wLoc from colsBase (object, would need to parameterize for any value)
@@ -630,13 +677,13 @@ for df in filter(lambda n: n.startswith('t'), gamesData):
 # CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
 #==============================================================================
 # Create list of unique columns in all games DataFrames
-colSummaryTeam = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
+colSumDict['teams'] = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
                     map(lambda g: g + 'TeamSeasonStats', gamesData)]
 
-colSummaryTeam = pd.DataFrame(list(set(list(chain(*colSummaryTeam)))),
+colSumDict['teams'] = pd.DataFrame(list(set(list(chain(*colSummaryTeam)))),
                           columns = ['colName', 'colDataType', 'isObject'])
 
-colSummaryTeam = colSummaryTeam.sort_values(by = 'colName')
+colSumDict['teams'] = colSummaryTeam.sort_values(by = 'colName')
 
 
 #==============================================================================
@@ -781,13 +828,13 @@ for df in map(lambda n: n + 'SeasonStatsMatchup', gamesData):
 # CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
 #==============================================================================
 # Create list of unique columns in all games DataFrames
-colSumStatMatchup = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
-                    map(lambda g: g + 'SeasonStatsMatchup', gamesData)]
+colSumDict['StatMatchup'] = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
+                             map(lambda g: g + 'SeasonStatsMatchup', gamesData)]
 
-colSumStatMatchup = pd.DataFrame(list(set(list(chain(*colSumStatMatchup)))),
-                          columns = ['colName', 'colDataType', 'isObject'])
+colSumDict['StatMatchup'] = pd.DataFrame(list(set(list(chain(*colSumStatMatchup)))),
+                                         columns = ['colName', 'colDataType', 'isObject'])
 
-colSumStatMatchup = colSumStatMatchup.sort_values(by = 'colName')
+colSumDict['StatMatchup'] = colSumStatMatchup.sort_values(by = 'colName')
 
 
 #==============================================================================
