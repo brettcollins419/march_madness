@@ -432,24 +432,26 @@ gamesDataD = ['tGamesD', 'rGamesD']
 #    dataDict[df].describe()
 
 
-
-# Generate dict
-colSumDict = {}  
-    
-
-# Create list of unique columns in all games DataFrames
-
-for df in gamesData:
-  colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], 
-                                                    returnDF=True)
-
-colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
-
-colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
-                          columns = ['colName', 'colDataType', 'isObject'])
-
-colSummary = colSummary.sort_values(by = 'colName')
-
+#==============================================================================
+# 
+# # Generate dict
+# colSumDict = {}  
+#     
+# 
+# # Create list of unique columns in all games DataFrames
+# 
+# for df in gamesData:
+#   colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], 
+#                                                     returnDF=True)
+# 
+# colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
+# 
+# colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
+#                           columns = ['colName', 'colDataType', 'isObject'])
+# 
+# colSummary = colSummary.sort_values(by = 'colName')
+# 
+#==============================================================================
 
 
 #==============================================================================
@@ -462,39 +464,36 @@ for df in gamesData:
 
 
 # Detailed DF additional Stats
-for df in gamesDataD:
-    for team in ['W', 'L']:
-        dataDict[df][team + 'FGpct'] = dataDict[df][team + 'FGM'] / dataDict[df][team + 'FGA']
-        dataDict[df][team + 'FGpct3'] = dataDict[df][team + 'FGM3'] / dataDict[df][team + 'FGA3']
-        dataDict[df][team + 'FTpct'] = dataDict[df][team + 'FTM'] / dataDict[df][team + 'FTA']
-        dataDict[df][team + 'Scorepct'] = (   dataDict[df][team + 'FGpct3'] * 3 
-                                            + dataDict[df][team + 'FGpct'] * 2 
-                                            + dataDict[df][team + 'FTpct']
-                                            ) / 6
-        
-    for team in [('W', 'L'), ('L', 'W')]:        
-        dataDict[df][team[0] + 'ORpct'] = (dataDict[df][team[0] + 'OR'] /
-                                            (dataDict[df][team[0] + 'OR'] 
-                                                + dataDict[df][team[1] + 'DR']))
-                                                
-        dataDict[df][team[0] + 'DRpct'] = (dataDict[df][team[0] + 'DR'] /
-                                            (dataDict[df][team[0] + 'DR'] 
-                                                + dataDict[df][team[1] + 'OR']))    
-
-        dataDict[df][team[0] + 'Rpct'] = ((dataDict[df][team[0] + 'DR'] 
-                                        + dataDict[df][team[0] + 'OR']) /
-                                            (   dataDict[df][team[0] + 'DR'] 
-                                              + dataDict[df][team[0] + 'OR']
-                                              + dataDict[df][team[1] + 'OR']
-                                              + dataDict[df][team[1] + 'DR'])) 
+    if df.endswith('D'):
+        for team in ['W', 'L']:
+            dataDict[df][team + 'FGpct'] = dataDict[df][team + 'FGM'] / dataDict[df][team + 'FGA']
+            dataDict[df][team + 'FGpct3'] = dataDict[df][team + 'FGM3'] / dataDict[df][team + 'FGA3']
+            dataDict[df][team + 'FTpct'] = dataDict[df][team + 'FTM'] / dataDict[df][team + 'FTA']
+            dataDict[df][team + 'Scorepct'] = (   dataDict[df][team + 'FGpct3'] * 3 
+                                                + dataDict[df][team + 'FGpct'] * 2 
+                                                + dataDict[df][team + 'FTpct']
+                                                ) / 6
+            
+        for team in [('W', 'L'), ('L', 'W')]:        
+            dataDict[df][team[0] + 'ORpct'] = (dataDict[df][team[0] + 'OR'] /
+                                                (dataDict[df][team[0] + 'OR'] 
+                                                    + dataDict[df][team[1] + 'DR']))
+                                                    
+            dataDict[df][team[0] + 'DRpct'] = (dataDict[df][team[0] + 'DR'] /
+                                                (dataDict[df][team[0] + 'DR'] 
+                                                    + dataDict[df][team[1] + 'OR']))    
+    
+            dataDict[df][team[0] + 'Rpct'] = ((dataDict[df][team[0] + 'DR'] 
+                                            + dataDict[df][team[0] + 'OR']) /
+                                                (   dataDict[df][team[0] + 'DR'] 
+                                                  + dataDict[df][team[0] + 'OR']
+                                                  + dataDict[df][team[1] + 'OR']
+                                                  + dataDict[df][team[1] + 'DR'])) 
 
 
 #==============================================================================
 # IDENTIFY COLUMN TYPES AND UPDATE COLUMN SUMMARIES WITH NEW COLUMNS
 #==============================================================================
-
-
-
 
 # Create list of unique columns in all games DataFrames
 colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
@@ -509,23 +508,24 @@ colSummary = colSummary.sort_values(by = 'colName')
 colSumDict = {}  
   
 # Label column types
-colsWin = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
-              colSummary['colName'].values.tolist())
-colsLoss = filter(lambda c: c.startswith('L'), 
-               colSummary['colName'].values.tolist())
-colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT']   
+colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scoreGap']   
 
-
+colsWinFilter = lambda c: c.startswith('W') & (c != 'WLoc')
+colsLossFilter = lambda c: c.startswith('L')
+       
+    
 # Create list of unique columns in all games DataFrames
 for df in gamesData:
   colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], 
                                                     returnDF=True)
+                                                    
+                                                    
 
   # Label column types
-  colsWin = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
+  colsWin = filter(colsWinFilter,
                    dataDict[df].columns.tolist())
-  colsLoss = filter(lambda c: c.startswith('L'), 
-                    dataDict[df].values.tolist())
+  colsLoss = filter(colsLossFilter, 
+                    dataDict[df].columns.tolist())
 
   
   for colName, colList in [('colsBase', colsBase), 
@@ -542,9 +542,9 @@ for df in gamesData:
 #==============================================================================
 for df in gamesData:
 
-    colsWinTemp = filter(lambda c: c.startswith('W') & (c != 'WLoc'),
+    colsWinTemp = filter(colsWinFilter,
                   dataDict[df].columns.tolist())
-    colsLossTemp = filter(lambda c: c.startswith('L'), 
+    colsLossTemp = filter(colsLossFilter, 
                    dataDict[df].columns.tolist())
 
     # Split wins and loss data (specific for each dataframe)
@@ -553,8 +553,8 @@ for df in gamesData:
     
     # Format base/shared columns between wins & loss data
     # Remove wLoc from colsBase (object, would need to parameterize for any value)
-    colsBaseTemp = filter(lambda c: c in colsBase + ['scoreGap'], dataDict[df].columns.tolist())
-    colsBaseTemp = filter(lambda c: c != 'WLoc', colsBaseTemp)    
+    colsBaseTemp = filter(lambda c: (c in colsBase) & (c != 'WLoc'), 
+                          dataDict[df].columns.tolist())   
     
     winDF = dataDict[df].loc[:, colsBaseTemp + colsWinTemp]
     winDF['win'] = 1
@@ -680,93 +680,7 @@ for df in filter(lambda n: n.startswith('t'), gamesData):
 # Create list of unique columns in all games DataFrames
 for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
     colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], returnDF=True)
-
-#==============================================================================
-# colSumDict['teams'] = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
-#                     map(lambda g: g + 'TeamSeasonStats', gamesData)]
-# 
-# colSumDict['teams'] = pd.DataFrame(list(set(list(chain(*colSummaryTeam)))),
-#                           columns = ['colName', 'colDataType', 'isObject'])
-# 
-# colSumDict['teams'] = colSummaryTeam.sort_values(by = 'colName')
-# 
-#==============================================================================
-
-#==============================================================================
-# MERGING DATASETS & MISSING DATA FILL
-#==============================================================================
-#==============================================================================
-
-# COMMENTED OUT 3/17/18
-
-#==============================================================================
-# # 
-# # # Missing Values Dict
-# # fillDict = {'LSeed':'noSeed', 
-# #             'WSeed':'noSeed', 
-# #             'LseedRank':32, 
-# #             'WseedRank':32,
-# #             'LOrdinalRank': 176,
-# #             'WOrdinalRank': 176}
-# # 
-# # # add conference labels
-# # # add tourney seed
-# # # add end of season rankings
-# # for df in gamesData:
-# #     for label in ['W', 'L']:
-# #         dataDict[df] = dataDict[df].merge(dataDict['teamConferences'].set_index(['Season', 'TeamID']), 
-# #                                           how = 'left', 
-# #                                           left_on = ['Season', label + 'TeamID'],
-# #                                           right_index = True)
-# #                                       
-# #         
-# #         
-# #         dataDict[df] = dataDict[df].merge(dataDict['tSeeds'].set_index(['Season', 'TeamID']),
-# #                                           how = 'left', 
-# #                                           left_on = ['Season', label + 'TeamID'],
-# #                                           right_index = True)
-# #            
-# #            
-# #         dataDict[df] = dataDict[df].merge(dataDict['endSeasonRanks'],
-# #                                           how = 'left', 
-# #                                           left_on = ['Season', label + 'TeamID'],
-# #                                           right_index = True)
-# # 
-# #                      
-# #         dataDict[df].rename(columns = {'ConfAbbrev': label + 'ConfAbbrev',
-# #                                         'Seed': label + 'Seed',
-# #                                         'seedRank': label + 'seedRank',
-# #                                         'OrdinalRank': label + 'OrdinalRank'}, 
-# #                                        inplace = True)
-# # 
-# #         if label == 'W':        
-# #             dataDict[df][label + 'Games'] = 1
-# #         else:
-# #            dataDict[df][label + 'Games'] = -1 
-# # 
-# #     # Fill missing Data
-# #     dataDict[df].fillna(fillDict, inplace = True)
-# # 
-# # 
-# #     # Conference & seedRank Matchups
-# #     for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
-# #         dataDict[df][matchup[0]] = generateMatchupField(df = dataDict[df], 
-# #                                                         matchupName = matchup[1], 
-# #                                                         label1 = 'W', 
-# #                                                         label2 = 'L')
-# #         
-# #         
-# # 
-# #     # Score gap, seedRank delta, and OrdinalRank delta
-# #     for stat in [('scoreGap', 'Score'), 
-# #                  ('seedDelta', 'seedRank'), 
-# #                  ('ordinalRankDelta', 'OrdinalRank')]:
-# #         dataDict[df][stat[0]] = dataDict[df]['W' + stat[1]] - dataDict[df]['L' + stat[1]]
-# # 
-#==============================================================================
-# 
-#==============================================================================
-                                               
+                                     
   
 #==============================================================================
 # CREATE NEW MATCHUPS USING TEAM SEASON STATISTICS
@@ -810,33 +724,55 @@ for df, dfM in zip(gamesData, map(lambda n: n + 'TeamSeasonStats', gamesData)):
                                                 )
 
      # Calculate matchup pairs
-     for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
-         dataDict[df][matchup[0]] = generateMatchupField(df = dataDict[df], 
-                                                         matchupName = matchup[1], 
-                                                         label1 = 'W', 
-                                                         label2 = 'L')
+    for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
+        dataDict[df + 'SeasonStatsMatchup'][matchup[0]] = generateMatchupField(df = dataDict[df + 'SeasonStatsMatchup'], 
+                                                                               matchupName = matchup[1], 
+                                                                                label1 = 'W', 
+                                                                                label2 = 'L')
 
     # Cacluate column stats
     colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
 
 
     # Generate new dataframe with deltas between winning and losing teams
-    # NEED TO ADD BASE COLUMNS
-############################################
     numericCols =  colSumDict[df + 'SeasonStatsMatchup'][~colSumDict[df + 'SeasonStatsMatchup']['isObject']]['colName'].values.tolist()  
-    colsWinTemp = filter(lambda c: c.startswith('W') & (c != 'WLoc') & (c != 'WTeamID'),
+    colsWinTemp = filter(lambda c: colsWinFilter(c) & (c != 'WTeamID'),
                   numericCols)
-    colsLossTemp = filter(lambda c: c.startswith('L') & (c != 'LTeamID'), 
+    colsLossTemp = filter(lambda c: colsLossFilter(c) & (c != 'LTeamID'), 
                    numericCols)
 
+    # Base columns (all other columns)
+    colsBaseTemp = filter(lambda c: c not in colsWinTemp + colsLossTemp, dataDict[df + 'SeasonStatsMatchup'].columns.tolist())    
     
-    dataDict[df + 'SeasonStatsMatchupDeltas'] = pd.DataFrame(zip(*[dataDict[df + 'SeasonStatsMatchup'][colWin] - dataDict[df + 'SeasonStatsMatchup'][colLoss] 
-                                for colWin, colLoss in zip(colsWinTemp, colsLossTemp)]),
+    
+    # Merge delta calculations with base dataframe
+    dataDict[df + 'SeasonStatsMatchupDeltas'] = pd.concat(
+                                                    [dataDict[df + 'SeasonStatsMatchup'][colsBaseTemp],
+                                                     pd.DataFrame(zip(*[(dataDict[df + 'SeasonStatsMatchup'][colWin] 
+                                                                         - dataDict[df + 'SeasonStatsMatchup'][colLoss]) 
+                                                                         for colWin, colLoss in zip(colsWinTemp, colsLossTemp)]),
                                            columns = map(lambda colName: colName[1:] + 'Delta',
-                                                         colsWinTemp))
+                                                         colsWinTemp))],
+                                                         axis = 1)
 
-del(renameDict, seedNameDict)
+    colSumDict[df + 'SeasonStatsMatchupDeltas'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchupDeltas'], returnDF=True)
 
+
+del(renameDict, seedNameDict, colsLossTemp, colsWinTemp, numericCols)
+
+
+
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+# # # # # BELIEVE I CAN SKIP TO CORRELATION ANALYSIS
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
 
 #==============================================================================
 # CALULATE MATCHUP CATEGORIES (TOURNEY SEEDS & CONFERENCES) & METRIC DELTAS
