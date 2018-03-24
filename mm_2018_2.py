@@ -350,6 +350,32 @@ def timer(sigDigits = 3):
         #global startTime        
 
 
+
+
+def plotCorrHeatMap(corrData, ax = None,
+                    cmap = 'coolwarm', 
+                    maskHalf = True, 
+                    plotTitle = None,
+                    plotTitleFontSize = 24,
+                    tickLabelSize = 16):
+
+    if ax == None:
+       fig, ax = plt.subplots(1)  
+
+    mask = np.zeros_like(corrData)
+
+    if maskHalf == True:  
+        mask[np.triu_indices_from(mask)] = True   
+
+    if plotTitle != None:    
+        ax.set_title(plotTitle, fontsize = 24)
+    
+    sns.heatmap(corrData, mask = mask, square = True, cmap=cmap, ax=ax)    
+    plt.tight_layout()    
+    ax.tick_params(labelsize=tickLabelSize)
+
+    return
+
 #location = 'dsw'
 location = 'home'
 
@@ -639,7 +665,7 @@ del(maxRankDate, rsRankings, dataDict['MasseyOrdinals'])
 #==============================================================================
 # Missing Values Dict
 fillDict = {'LSeed':'NA', 
-            'seedRank':32,
+            'seedRank':17,
             'OrdinalRank': 176}
 
 for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
@@ -659,7 +685,7 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
                                       left_index = True,
                                       right_index = True)
 
-
+    dataDict[df].fillna(fillDict, inplace = True)
 
 #==============================================================================
 # CALCULATE SEED STATISTICS FOR TOURNAMENT
@@ -760,58 +786,110 @@ for df, dfM in zip(gamesData, map(lambda n: n + 'TeamSeasonStats', gamesData)):
 
 del(renameDict, seedNameDict, colsLossTemp, colsWinTemp, numericCols)
 
+# Add matchup columns to colsBase
+colsBase += ['confMatchup', 'seedRankMatchup']
 
 
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-# # # # # BELIEVE I CAN SKIP TO CORRELATION ANALYSIS
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-
-#==============================================================================
-# CALULATE MATCHUP CATEGORIES (TOURNEY SEEDS & CONFERENCES) & METRIC DELTAS
-#==============================================================================
-for df in map(lambda n: n + 'SeasonStatsMatchup', gamesData):
-
-     # Conference & seedRank Matchups
-     for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
-         dataDict[df][matchup[0]] = generateMatchupField(df = dataDict[df], 
-                                                         matchupName = matchup[1], 
-                                                         label1 = 'W', 
-                                                         label2 = 'L')
-     
-     colSumDict[df] =  generateDataFrameColumnSummaries(dataDict[df], returnDF=True)  
-     # Score gap, seedRank delta, and OrdinalRank delta
-     for stat in [('scoreGap', 'Score'), 
-                  ('seedDelta', 'seedRank'), 
-                  ('ordinalRankDelta', 'OrdinalRank')]:
-         dataDict[df][stat[0]] = dataDict[df]['W' + stat[1]] - dataDict[df]['L' + stat[1]]
-
-
-#==============================================================================
-# CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
-#==============================================================================
-# Create list of unique columns in all games DataFrames
-colSumDict['StatMatchup'] = [generateDataFrameColumnSummaries(dataDict[df]) for df in 
-                             map(lambda g: g + 'SeasonStatsMatchup', gamesData)]
-
-colSumDict['StatMatchup'] = pd.DataFrame(list(set(list(chain(*colSumStatMatchup)))),
-                                         columns = ['colName', 'colDataType', 'isObject'])
-
-colSumDict['StatMatchup'] = colSumStatMatchup.sort_values(by = 'colName')
 
 
 #==============================================================================
 # CORRELATION ANALYSIS
 #==============================================================================
 
-x = dataDict[df].corr()
+# Columns to exculde in correlation anaylsis:
+#   All base columns excluding scoreGap
+#   TeamIDs
+#   All object columns 
+
+corrExcludeCols = filter(lambda c: c != 'scoreGap', colsBase + ['WTeamID', 'LTeamID'])
+
+
+for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesData):
+    corrColsTemp = filter(lambda c: c not in corrExcludeCols, dataDict[df].columns.tolist())    
+    dataDict[df + 'Corr'] = dataDict[df][corrColsTemp].corr()
+    
+    plotCorrHeatMap(dataDict[df + 'Corr'], 
+                    plotTitle= df + ' Correlation Analysis')
+
+
+
+
+
+#==============================================================================
+# PRINCIPLE COMPONENT ANALSYSIS OF TEAM STATS DATA
+#==============================================================================
+# Perform PCA analysis on each Team Stats dataframe
+#   Steps:
+#       Scale Data
+#       Iterate through number of components & select minimum # of components
+#           that meets the descired explained variance
+
+teamStatsDFs = filter(lambda dfName: len(re.findall('.*TeamSeasonStats.*', dfName))>0, dataDict.iterkeys())
+
+df = 'rGamesCTeamSeasonStats'
+
+
+
+pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+
+pca = PCA(n_components = 3, random_state = 1127)
+pca5 = PCA(n_components = 5, random_state = 1127)
+pca7 = PCA(n_components = 7, random_state = 1127)
+
+x = pca.fit(dataDict[df][pcaCols])
+y = pca5.fit(dataDict[df][pcaCols])
+z = pca7.fit(dataDict[df][pcaCols])
+
+from sklearn.pipeline import Pipeline
+
+pipe = Pipeline([('sScale', StandardScaler()),
+                  ('pca' PCA())])
+
+fig, ax = plt.subplots(1)
+sns.heatmap(z.components_, square = False, cmap = 'coolwarm', ax=ax)
+ax.set_xticklabels(dataDict[df][pcaCols].columns.tolist(), fontsize = 24)
+ax.tick_params(labelsize = 16)
+
+
+dir
+
+dir(ax)
+
+
+help(pca)
+
+
+pcaDict = {}
+
+plt.figure()
+cMap = plt.cm.jet
+
+
+pcaList = ['allDDataTeamScaled', 'allDDataTTeamScaled', 
+           'allCDataTeamScaled', 'allCDataTTeamScaled']
+
+for i, df in enumerate(pcaList):
+    
+    pcaDict[df] = map(lambda n: pcaVarCheck(n, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
+                                                                 axis = 1)), 
+                      xrange(2, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
+                                                                 axis = 1).shape[1], 1))
+
+    plt.plot(xrange(2, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
+                                                                 axis = 1).shape[1], 1), 
+             zip(*pcaDict[df])[1], 
+             c = cMap(int(((i/(len(pcaList)-1))*256))), 
+             marker = 'o', label = df)
+    
+    plt.xlabel('# of Components', fontsize = 20)
+    plt.ylabel('% Vairance Explained', fontsize = 20)
+    plt.title('Principal Component Analysis', fontsize = 24)
+    
+    plt.legend(fontsize = 20)
+    plt.grid(True)
+    plt.xticks(fontsize = 20)
+    plt.yticks(fontsize = 20)
+
 
 #==============================================================================
 # CORRELATION ANALYSIS
