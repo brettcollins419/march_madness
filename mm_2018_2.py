@@ -828,28 +828,43 @@ teamStatsDFs = filter(lambda dfName: len(re.findall('.*TeamSeasonStats.*', dfNam
 
 df = 'rGamesCTeamSeasonStats'
 
-
-
+# Get columns for transformation using PCA
 pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
 
-pca = PCA(n_components = 3, random_state = 1127)
-pca5 = PCA(n_components = 5, random_state = 1127)
-pca7 = PCA(n_components = 7, random_state = 1127)
+pca = PCA(n_components = len(pcaCols), random_state = 1127)
 
 x = pca.fit(dataDict[df][pcaCols])
 y = pca5.fit(dataDict[df][pcaCols])
 z = pca7.fit(dataDict[df][pcaCols])
+q = pca8.fit(dataDict[df][pcaCols])
 
-from sklearn.pipeline import Pipeline
+q.components_
 
-pipe = Pipeline([('sScale', StandardScaler()),
-                  ('pca' PCA())])
+
 
 fig, ax = plt.subplots(1)
-sns.heatmap(z.components_, square = False, cmap = 'coolwarm', ax=ax)
+sns.heatmap(q.components_, square = False, cmap = 'coolwarm', ax=ax, annot=True)
 ax.set_xticklabels(dataDict[df][pcaCols].columns.tolist(), fontsize = 24)
 ax.tick_params(labelsize = 16)
 
+
+
+#==============================================================================
+# MODEL DEVELOPMENT & GRID SEARCH
+#==============================================================================
+from sklearn.pipeline import Pipeline
+
+
+# Model List
+mdlList = [ RandomForestClassifier(random_state = 1127)
+            LogisticRegression(random_state = 1127)
+            KNeighborsClassifier()
+            SVC(random_state = 1127, probability = True)]
+
+
+pipe = Pipeline([('sScale', StandardScaler()), 
+                 ('pca', PCA()),
+                 ('mdl', LogisticRegression(random_state = 1127))])
 
 dir
 
