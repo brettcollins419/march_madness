@@ -819,35 +819,75 @@ for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesData):
 # PRINCIPLE COMPONENT ANALSYSIS OF TEAM STATS DATA
 #==============================================================================
 # Perform PCA analysis on each Team Stats dataframe
-#   Steps:
+#   Steps (use pipeline):
 #       Scale Data
-#       Iterate through number of components & select minimum # of components
-#           that meets the descired explained variance
+#       Calculate PCA for same number of dimensions in dataset to
+#       develop contribution of each axis
+
 
 teamStatsDFs = filter(lambda dfName: len(re.findall('.*TeamSeasonStats.*', dfName))>0, dataDict.iterkeys())
 
-df = 'rGamesCTeamSeasonStats'
+labelFontSize = 20
+titleFontSize = 24
+tickFontSize = 16
 
-# Get columns for transformation using PCA
-pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+pcaDict = {}
 
-pca = PCA(n_components = len(pcaCols), random_state = 1127)
+for df in teamStatsDFs:
 
-x = pca.fit(dataDict[df][pcaCols])
-y = pca5.fit(dataDict[df][pcaCols])
-z = pca7.fit(dataDict[df][pcaCols])
-q = pca8.fit(dataDict[df][pcaCols])
-
-q.components_
-
-
-
-fig, ax = plt.subplots(1)
-sns.heatmap(q.components_, square = False, cmap = 'coolwarm', ax=ax, annot=True)
-ax.set_xticklabels(dataDict[df][pcaCols].columns.tolist(), fontsize = 24)
-ax.tick_params(labelsize = 16)
+    # Get columns for transformation using PCA
+    pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+ 
+    pcaPipe = Pipeline([('sScale', StandardScaler()), 
+                        ('pca', PCA(n_components = len(pcaCols), 
+                                    random_state = 1127))])
+   
+    #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+    
+    pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
 
 
+    fig, axs = plt.subplots(1, 2)
+    plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+    
+    
+    # Plot feature weights for each component
+    sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
+                square = False, 
+                cmap = 'coolwarm', 
+                ax=axs[0], 
+                annot=True)
+    
+    # Add feature lables & format plot    
+    axs[0].set_xticklabels(dataDict[df][pcaCols].columns.tolist(), 
+                           fontsize = tickFontSize,
+                           rotation = 90)
+    axs[0].tick_params(labelsize = tickFontSize)
+    axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
+    axs[0].set_xlabel('Feature', fontsize = labelFontSize)
+    axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+       
+    # Plot explained variance curve
+    axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
+                np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
+                '-bo', 
+                markersize = 20, 
+                linewidth = 10)
+    
+    # Convert y-axis to %
+    axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+    
+    axs[1].set_title('Explained Variance vs. # of Components', 
+                     fontsize = titleFontSize)
+    axs[1].set_xlabel('# of Features', 
+                      fontsize = labelFontSize)
+    axs[1].set_ylabel('Explained Variance', 
+                      fontsize = labelFontSize)
+    axs[1].tick_params(labelsize = tickFontSize)
+    axs[1].grid()
+
+
+'
 
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
