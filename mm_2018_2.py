@@ -33,6 +33,7 @@ from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report, confusion_matrix, auc, roc_auc_score, accuracy_score
+from sklearn.pipeline import Pipeline
 
 
 
@@ -707,17 +708,24 @@ for df in filter(lambda n: n.startswith('t'), gamesData):
 for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
     colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], returnDF=True)
                                      
+
   
 #==============================================================================
-# CREATE NEW MATCHUPS USING TEAM SEASON STATISTICS
+# CREATE NEW TOURNAMENT MATCHUPS USING TEAM SEASON STATISTICS
 # 
-# ADD TOURNAMENT SEED STATISTICS TO TOURNAMENT DATAFRAMES
+# ADD TOURNAMENT SEED STATISTICS
 #
 # CALCULATE MATCHUP PAIRS FOR DUMMIES
 #==============================================================================
 
+# Align Complete and Detailed Datasets for compact and detailed datasets
+gamesDataT = filter(lambda g: g.startswith('t'), gamesData)
+gamesDataR = filter(lambda g: g.startswith('r'), gamesData)
+gamesDataT.sort()
+gamesDataR.sort()
 
-for df, dfM in zip(gamesData, map(lambda n: n + 'TeamSeasonStats', gamesData)):
+
+for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR)):
 
     # Base dataframe for merging
     dataDict[df + 'SeasonStatsMatchup'] = dataDict[df][colsBase + ['WTeamID', 'LTeamID']]
@@ -791,6 +799,13 @@ colsBase += ['confMatchup', 'seedRankMatchup']
 
 
 
+#==============================================================================
+# CREATE SUBSET OF REGULAR SEASON TEAM STATISTICS FOR TOURNAMENT TEAMS ONLY
+#==============================================================================
+for df in ['rGamesCTeamSeasonStats', 'rGamesDTeamSeasonStats']:
+    dataDict[df + 'Tourney'] = dataDict[df][dataDict[df]['seedRank'] <= 16]
+    colSumDict[df + 'Tourney'] = generateDataFrameColumnSummaries(dataDict[df + 'Tourney'], returnDF=True)
+
 
 #==============================================================================
 # CORRELATION ANALYSIS
@@ -804,7 +819,7 @@ colsBase += ['confMatchup', 'seedRankMatchup']
 corrExcludeCols = filter(lambda c: c != 'scoreGap', colsBase + ['WTeamID', 'LTeamID'])
 
 
-for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesData):
+for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesDataT):
     corrColsTemp = filter(lambda c: c not in corrExcludeCols, dataDict[df].columns.tolist())    
     dataDict[df + 'Corr'] = dataDict[df][corrColsTemp].corr()
     
@@ -825,7 +840,12 @@ for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesData):
 #       develop contribution of each axis
 
 
-teamStatsDFs = filter(lambda dfName: len(re.findall('.*TeamSeasonStats.*', dfName))>0, dataDict.iterkeys())
+teamStatsDFs = filter(lambda dfName: len(re.findall('.*TeamSeasonStats.*', dfName))>0, 
+                      dataDict.iterkeys())
+gamesStatsDFs = filter(lambda dfName: len(re.findall('t.*SeasonStatsMatchup.*', dfName))>0, 
+                       dataDict.iterkeys())
+gamesStatsDFs = filter(lambda dfName: dfName.endswith('Corr') != True, 
+                       gamesStatsDFs)
 
 labelFontSize = 20
 titleFontSize = 24
@@ -833,10 +853,16 @@ tickFontSize = 16
 
 pcaDict = {}
 
+
+### PCA Analysis on Team season statistics
+
+pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID']
+
 for df in teamStatsDFs:
 
     # Get columns for transformation using PCA
     pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+    pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
  
     pcaPipe = Pipeline([('sScale', StandardScaler()), 
                         ('pca', PCA(n_components = len(pcaCols), 
@@ -851,12 +877,17 @@ for df in teamStatsDFs:
     plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
     
     
+    # Determine how many labels to plot so that axis isn' cluttered
+    axisLabelFreq = len(pcaCols) // 20 + 1
+    
     # Plot feature weights for each component
     sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
                 square = False, 
                 cmap = 'coolwarm', 
                 ax=axs[0], 
-                annot=True)
+                #annot=True,
+                xticklabels = axisLabelFreq,
+                yticklabels = axisLabelFreq)
     
     # Add feature lables & format plot    
     axs[0].set_xticklabels(dataDict[df][pcaCols].columns.tolist(), 
@@ -887,12 +918,74 @@ for df in teamStatsDFs:
     axs[1].grid()
 
 
-'
+### PCA Analysis on matchup dataframes
+
+pcaExcludeCols = ['WTeamID', 'LTeamID'] + colsBase
+
+for df in gamesStatsDFs:
+
+    # Get columns for transformation using PCA
+    pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+    pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
+ 
+    pcaPipe = Pipeline([('sScale', StandardScaler()), 
+                        ('pca', PCA(n_components = len(pcaCols), 
+                                    random_state = 1127))])
+   
+    #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+    
+    pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
+
+
+    fig, axs = plt.subplots(1, 2)
+    plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+    
+    
+    # Determine how many labels to plot so that axis isn' cluttered
+    axisLabelFreq = len(pcaCols) // 20 + 1
+    
+    # Plot feature weights for each component
+    sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
+                square = False, 
+                cmap = 'coolwarm', 
+                ax=axs[0], 
+                #annot=True,
+                xticklabels = axisLabelFreq,
+                yticklabels = axisLabelFreq)
+    
+    # Add feature lables & format plot    
+    axs[0].set_xticklabels(dataDict[df][pcaCols].columns.tolist(), 
+                           fontsize = tickFontSize,
+                           rotation = 90)
+    axs[0].tick_params(labelsize = tickFontSize)
+    axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
+    axs[0].set_xlabel('Feature', fontsize = labelFontSize)
+    axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+       
+    # Plot explained variance curve
+    axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
+                np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
+                '-bo', 
+                markersize = 20, 
+                linewidth = 10)
+    
+    # Convert y-axis to %
+    axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+    
+    axs[1].set_title('Explained Variance vs. # of Components', 
+                     fontsize = titleFontSize)
+    axs[1].set_xlabel('# of Features', 
+                      fontsize = labelFontSize)
+    axs[1].set_ylabel('Explained Variance', 
+                      fontsize = labelFontSize)
+    axs[1].tick_params(labelsize = tickFontSize)
+    axs[1].grid()
+
 
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
-from sklearn.pipeline import Pipeline
+
 
 
 # Model List
