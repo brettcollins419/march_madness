@@ -99,15 +99,21 @@ def buildModelData(df):
         
     Return dataframe of same shape with plus winnerA boolean column.'''
 
-    colNames = dataDict[df].columns.tolist()
+    #filter only numeric columns
+    colNames = df.columns.tolist()
+    #colNames = filter(lambda c: df[c].dtype.hasobject == False, colNames)
+    
     wCols = filter(lambda col: (len(re.findall('^W.*', col))>0) & (col != 'WLoc'), colNames)
     lCols = filter(lambda col: len(re.findall('^L.*', col))>0, colNames)
     baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
+    deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', col)) > 0) | (col == 'scoreGap'), colNames)
 
+    # Rename columns
     aCols = map(lambda col: 'A' + col[1:], wCols)    
     bCols = map(lambda col: 'B' + col[1:], wCols)    
     
-    a, b = train_test_split(dataDict[df], test_size = 0.5, random_state = 1127)
+    # Split data
+    a, b = train_test_split(df, test_size = 0.5, random_state = 1127)
     
     # Reorder dataframes (flip winners and losers for b)
     a = a[baseCols + wCols + lCols]
@@ -117,8 +123,7 @@ def buildModelData(df):
     a['winnerA'] = 1
     b['winnerA'] = 0
 
-    # Inverse deltas for b since order is reversed
-    deltaCols = ['scoreGap', 'seedRankDelta', 'OrdinalRankDelta']    
+    # Inverse deltas for b since order is reversed 
     b[deltaCols] = b[deltaCols].applymap(lambda x: x * (-1.0))
     
     # Rename columns and stack dataframes
@@ -140,7 +145,8 @@ def buildModelDataFold(df):
     wCols = filter(lambda col: (len(re.findall('^W.*', col))>0) & (col != 'WLoc'), colNames)
     lCols = filter(lambda col: len(re.findall('^L.*', col))>0, colNames)
     baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
-
+    deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', c)) > 0) | (col == 'scoreGap'), colNames)
+    
     aCols = map(lambda col: 'A' + col[1:], wCols)    
     bCols = map(lambda col: 'B' + col[1:], wCols)    
     
@@ -155,7 +161,7 @@ def buildModelDataFold(df):
     b['winnerA'] = 0
 
     # Inverse deltas for b since order is reversed
-    deltaCols = ['scoreGap', 'seedRankDelta', 'OrdinalRankDelta']    
+   
     b[deltaCols] = b[deltaCols].applymap(lambda x: x * (-1.0))
     
     # Rename columns and stack dataframes
@@ -223,6 +229,11 @@ def generateGameMatchupStats(gameDF, teamDF,
 
 def modelAnalysis(model, data = [], targetCol = None, indCols = None, testTrainDataList = [], testTrainSplit = 0.2):
     
+    if indCols == None:
+        indCols = filter(lambda col: ((data[col].dtype.hasobject == False) 
+                                        & (col != targetCol)), 
+                         data.columns.tolist())
+    
     if len(testTrainDataList) == 4:                                           
         xTrain, xTest, yTrain, yTest = testTrainDataList
     
@@ -235,6 +246,37 @@ def modelAnalysis(model, data = [], targetCol = None, indCols = None, testTrainD
     model.fit(xTrain, yTrain)
     predictions = model.predict(xTest)
     predProbs = np.max(model.predict_proba(xTest), axis = 1)
+    auc = roc_auc_score(yTest, predictions)
+    accuracy = accuracy_score(yTest, predictions)
+    
+    return predictions, predProbs, auc, accuracy
+
+
+
+def modelAnalysisPipeline(modelPipe, data = [], 
+                          targetCol = None, 
+                          indCols = None, 
+                          testTrainDataList = [], 
+                          testTrainSplit = 0.2):
+
+
+    if indCols == None:
+        indCols = filter(lambda col: ((data[col].dtype.hasobject == False) 
+                                        & (col != targetCol)), 
+                         data.columns.tolist())
+    
+    if len(testTrainDataList) == 4:                                           
+        xTrain, xTest, yTrain, yTest = testTrainDataList
+    
+    else:
+        xTrain, xTest, yTrain, yTest = train_test_split(data[indCols], 
+                                                        data[targetCol],
+                                                        test_size = testTrainSplit)
+    
+
+    modelPipe.fit(xTrain, yTrain)
+    predictions = modelPipe.predict(xTest)
+    predProbs = np.max(modelPipe.predict_proba(xTest), axis = 1)
     auc = roc_auc_score(yTest, predictions)
     accuracy = accuracy_score(yTest, predictions)
     
@@ -377,6 +419,11 @@ def plotCorrHeatMap(corrData, ax = None,
 
     return
 
+
+#==============================================================================
+# END FUNCTIONS
+#==============================================================================
+
 #location = 'dsw'
 location = 'home'
 
@@ -459,27 +506,6 @@ gamesDataD = ['tGamesD', 'rGamesD']
 #    dataDict[df].describe()
 
 
-#==============================================================================
-# 
-# # Generate dict
-# colSumDict = {}  
-#     
-# 
-# # Create list of unique columns in all games DataFrames
-# 
-# for df in gamesData:
-#   colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], 
-#                                                     returnDF=True)
-# 
-# colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
-# 
-# colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
-#                           columns = ['colName', 'colDataType', 'isObject'])
-# 
-# colSummary = colSummary.sort_values(by = 'colName')
-# 
-#==============================================================================
-
 
 #==============================================================================
 # CALCULATE ADDITIONAL STATISTICS 
@@ -523,12 +549,12 @@ for df in gamesData:
 #==============================================================================
 
 # Create list of unique columns in all games DataFrames
-colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
+#colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
 
-colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
-                          columns = ['colName', 'colDataType', 'isObject'])
+#colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
+#                          columns = ['colName', 'colDataType', 'isObject'])
 
-colSummary = colSummary.sort_values(by = 'colName')
+#colSummary = colSummary.sort_values(by = 'colName')
 
 
 # Generate dict
@@ -982,6 +1008,18 @@ for df in gamesStatsDFs:
     axs[1].grid()
 
 
+
+
+
+#==============================================================================
+# BUILD MODELING DATASETS
+#==============================================================================
+# Randomly split data and assign a win/loss column
+# Invert delta calculations for 50% that was flipped (loss observations)
+
+for df in gamesStatsDFs:
+    dataDict[df + 'Mdl'] = buildModelData(dataDict[df])
+
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
@@ -989,15 +1027,47 @@ for df in gamesStatsDFs:
 
 
 # Model List
-mdlList = [ RandomForestClassifier(random_state = 1127)
-            LogisticRegression(random_state = 1127)
-            KNeighborsClassifier()
+mdlList = [ RandomForestClassifier(random_state = 1127),
+            LogisticRegression(random_state = 1127),
+            KNeighborsClassifier(),
             SVC(random_state = 1127, probability = True)]
 
 
 pipe = Pipeline([('sScale', StandardScaler()), 
-                 ('pca', PCA()),
+                 ('pca', PCA(n_components = 10)),
                  ('mdl', LogisticRegression(random_state = 1127))])
+
+
+indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                            & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
+                dataDict[df + 'Mdl'].columns.tolist())
+
+
+predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
+                      data = dataDict[df + 'Mdl'],
+                      indCols = indCols,
+                      targetCol = 'winnerA',
+                      testTrainSplit = 0.2)
+
+
+help(PCA)
+
+help(LogisticRegression)
+
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+# # # # # # 
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+#==============================================================================
+
 
 dir
 
