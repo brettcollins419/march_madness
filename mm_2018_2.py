@@ -257,7 +257,9 @@ def modelAnalysisPipeline(modelPipe, data = [],
                           targetCol = None, 
                           indCols = None, 
                           testTrainDataList = [], 
-                          testTrainSplit = 0.2):
+                          testTrainSplit = 0.2,
+                          gridSearch = False,
+                          paramGrid = None):
 
 
     if indCols == None:
@@ -273,14 +275,17 @@ def modelAnalysisPipeline(modelPipe, data = [],
                                                         data[targetCol],
                                                         test_size = testTrainSplit)
     
-
+    if gridSearch == True:
+        modelPipe = GridSearchCV(modelPipe, paramGrid)
+    
+    
     modelPipe.fit(xTrain, yTrain)
     predictions = modelPipe.predict(xTest)
     predProbs = np.max(modelPipe.predict_proba(xTest), axis = 1)
     auc = roc_auc_score(yTest, predictions)
     accuracy = accuracy_score(yTest, predictions)
     
-    return predictions, predProbs, auc, accuracy
+    return modelPipe, predictions, predProbs, auc, accuracy
 
 
 
@@ -1027,14 +1032,48 @@ for df in gamesStatsDFs:
 
 
 # Model List
-mdlList = [ RandomForestClassifier(random_state = 1127),
+mdlList = [ DecisionTreeClassifier(random_state = 1127) 
+            RandomForestClassifier(random_state = 1127),
             LogisticRegression(random_state = 1127),
             KNeighborsClassifier(),
             SVC(random_state = 1127, probability = True)]
 
 
+paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
+                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+                'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+                         RandomForestClassifier(random_state = 1127,
+                                                         n_estimators = 100,
+                                                         n_jobs = -1,
+                                                         verbose = 0)],
+                'mdl__min_samples_split' : map(lambda c: c/20, range(1, 5)),
+                'mdl__min_samples_leaf' : xrange(2, 10, 4)
+                
+                },
+                
+            {'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
+                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+                'mdl' : [LogisticRegression(random_state = 1127)],
+                'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
+                },
+                
+            {'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
+                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+                'mdl' : [SVC(probability = True)],
+                'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
+                'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
+                },
+                
+            {'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
+                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+                'mdl' : [KNeighborsClassifier()],
+                'mdl__n_neighbors' : range(3, 10, 2)
+                
+                }]
+
+
 pipe = Pipeline([('sScale', StandardScaler()), 
-                 ('pca', PCA(n_components = 10)),
+                 ('fReduce', PCA(n_components = 10)),
                  ('mdl', LogisticRegression(random_state = 1127))])
 
 
@@ -1042,12 +1081,61 @@ indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'
                             & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
                 dataDict[df + 'Mdl'].columns.tolist())
 
-
-predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
+timer()
+pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
                       data = dataDict[df + 'Mdl'],
                       indCols = indCols,
                       targetCol = 'winnerA',
-                      testTrainSplit = 0.2)
+                      testTrainSplit = 0.2,
+                      gridSearch=True,
+                      paramGrid=paramGrid)
+x = timer()
+
+pipe.named_steps['mdl']
+
+x = pipe.cv_results
+
+grid = GridSearchCV(pipe, cv=3, n_jobs=1, param_grid=param_grid)
+
+mdlDict = {'dTree' : {'model' : DecisionTreeClassifier(random_state = 1127),
+                      'gridParams' : {'min_samples_split' : np.arange(.05, .21, .05),
+                                      'min_samples_leaf' : xrange(2, 10, 4)
+                                     }
+                     },
+                                      
+           'rForest' : {'model' : RandomForestClassifier(random_state = 1127,
+                                                         n_estimators = 100,
+                                                         n_jobs = -1,
+                                                         verbose = 0),
+                        'gridParams' : {'min_samples_split' : np.arange(.05, .21, .05),
+                                        'min_samples_leaf' : xrange(2, 10, 4),
+                                        }
+                        },
+                                        
+            'logR' : {'model': LogisticRegression(random_state = 1127),
+                      'gridParams' : {'C': map(lambda i: 10**i, xrange(-1,3))}
+                      },
+            'knn' : {'model': KNeighborsClassifier(),
+                     'gridParams' : {'n_neighbors' : xrange(3, 9, 2)}
+                     },
+            'nb' : {'model': GaussianNB(),
+                    'gridParams' : {}
+                     },
+            'svc' : {'model': SVC(probability = True),
+                     'gridParams' : {'C': map(lambda i: 10**i, xrange(-1,3)),
+                                     'gamma' : map(lambda i: 10**i, xrange(-3,1))}
+                     }
+            }
+
+
+
+
+
+
+
+
+
+
 
 
 help(PCA)
