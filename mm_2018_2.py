@@ -1091,6 +1091,18 @@ pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = 
                       paramGrid=paramGrid)
 x = timer()
 
+
+# Plot Results
+gridSearchResults = pd.DataFrame(pipe.cv_results_)
+gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], gridSearchResults['param_mdl'].values.tolist())
+
+fig, ax = plt.subplots(1)
+
+ax = sns.swarmplot(x = 'mdl', y = 'mean_test_score', data = gridSearchResults)
+ax.tick_params(labelsize = 20)
+plt.legend()
+sns.boxplot()
+
 pipe.named_steps['mdl']
 
 x = pipe.cv_results
