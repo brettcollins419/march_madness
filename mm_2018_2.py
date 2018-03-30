@@ -1038,7 +1038,7 @@ mdlList = [ DecisionTreeClassifier(random_state = 1127)
             KNeighborsClassifier(),
             SVC(random_state = 1127, probability = True)]
 
-
+# Configure parameter grid for pipeline
 paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
                                               len(dataDict[df + 'Mdl'][indCols].columns) // 4),
                 'mdl' : [DecisionTreeClassifier(random_state = 1127), 
@@ -1071,7 +1071,7 @@ paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCol
                 
                 }]
 
-
+# Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
 pipe = Pipeline([('sScale', StandardScaler()), 
                  ('fReduce', PCA(n_components = 10)),
                  ('mdl', LogisticRegression(random_state = 1127))])
@@ -1081,6 +1081,8 @@ indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'
                             & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
                 dataDict[df + 'Mdl'].columns.tolist())
 
+
+# Run grid search on modeling pipeline
 timer()
 pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
                       data = dataDict[df + 'Mdl'],
@@ -1096,10 +1098,22 @@ x = timer()
 gridSearchResults = pd.DataFrame(pipe.cv_results_)
 gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], gridSearchResults['param_mdl'].values.tolist())
 
+gridSearchResults.columns.tolist()
+
+for col in filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
+                   gridSearchResults.columns.tolist())
+
+
+# Plot Results
 fig, ax = plt.subplots(1)
 
 ax = sns.swarmplot(x = 'mdl', y = 'mean_test_score', data = gridSearchResults)
 ax.tick_params(labelsize = 20)
+ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+ax.set_xlabel('Model Type', fontsize = 24)
+ax.set_ylabel('Accuracy', fontsize = 24)
+              
+              
 plt.legend()
 sns.boxplot()
 
