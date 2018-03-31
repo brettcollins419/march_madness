@@ -430,6 +430,56 @@ def colsTeamFilter(col, teamLabel):
     '''Check if column string starts with specificed letter or phrase.'''
     return col.startswith(teamLabel)
 
+
+
+def generateMatchupDeltas(df, label1 = 'A', label2 = 'B', 
+                          excludeCols = ['ATeamID', 'BTeamID']):
+    '''Calculate deltas bewtween matching metric columns
+    
+        Return dataframe of delta metrics with column labels as same
+        base name + 'Delta' '''
+    
+    dfCols = df.columns.tolist()
+    
+    # Error handling of exclusion list
+    if type(excludeCols) != list:
+        excludeCols = list(excludeCols)
+    
+    # Find all numeric columns
+    objectCols = filter(lambda c: df[c].dtype.hasobject, dfCols)
+    excludeCols += objectCols
+    
+    numericCols = filter(lambda c: c not in excludeCols, dfCols)
+    
+    # Split numeric columns between the two teams
+    label1Cols = filter(lambda c: colsTeamFilter(c, label1), numericCols)
+    label2Cols = filter(lambda c: colsTeamFilter(c, label2), numericCols)
+
+    len1, len2 = len(label1Cols), len(label2Cols)
+    
+    # Make sure labels are in both datasets 
+    # (filter longest list to elements in shortest list)
+    if len1 >= len2:
+        label1Cols = filter(lambda c: c[1:] in map(lambda cc: c[1:], label2Cols), 
+                            label1Cols)
+    else:
+        label2Cols = filter(lambda c: c[1:] in map(lambda cc: c[1:], label1Cols), 
+                            label2Cols)
+    
+    # Sort columns for zippping 
+    label1Cols.sort()
+    label2Cols.sort()
+    
+    
+    # Create dataframe of metric deltas (label1 - label2)
+    deltaDF = pd.DataFrame(zip(*[(df[l1Col] - df[l2Col]) 
+                            for l1Col, l2Col in zip(label1Cols, label2Cols)]),
+                            columns = map(lambda colName: colName[1:] + 'Delta', 
+                                          label1Cols))
+
+    return deltaDF
+
+
 #==============================================================================
 # END FUNCTIONS
 #==============================================================================
@@ -836,28 +886,6 @@ del(renameDict, seedNameDict, colsLossTemp, colsWinTemp, numericCols)
 colsBase += ['confMatchup', 'seedRankMatchup']
 
 
-def generateMatchupDeltas(df, excludeCols = [], label1 = 'A', label2 = 'B'):
-    
-    dfCols = df.columns.tolist()
-    
-    if type(excludeCols) != list:
-        excludeCols = list(excludeCols)
-    
-    objectCols = map(lambda c: df[c].dtype.isobject, dfCols)
-    excludeCols += objectCols
-    
-    numericCols = filter(lambda c: c not in excludeCols, dfCols)
-    
-    label1Cols = filter(lambda c: colsTeamFilter(c, label1), numericCols)
-    label2Cols = filter(lambda c: colsTeamFilter(c, label2), numericCols)
-
-
-    deltaDF = pd.DataFrame(zip(*[(df[l1Col] - df[l2Col]) 
-                            for l1Col, l2Col in zip(label1Cols, label2Cols)]),
-                            columns = map(lambda colName: colName[1:] + 'Delta', 
-                                          label1Cols))
-
-    return deltaDF
 
 #==============================================================================
 # CREATE SUBSET OF REGULAR SEASON TEAM STATISTICS FOR TOURNAMENT TEAMS ONLY
