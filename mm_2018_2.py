@@ -425,6 +425,11 @@ def plotCorrHeatMap(corrData, ax = None,
     return
 
 
+
+def colsTeamFilter(col, teamLabel):
+    '''Check if column string starts with specificed letter or phrase.'''
+    return col.startswith(teamLabel)
+
 #==============================================================================
 # END FUNCTIONS
 #==============================================================================
@@ -570,7 +575,8 @@ colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scoreGap']
 
 colsWinFilter = lambda c: c.startswith('W') & (c != 'WLoc')
 colsLossFilter = lambda c: c.startswith('L')
-       
+   
+
     
 # Create list of unique columns in all games DataFrames
 for df in gamesData:
@@ -807,7 +813,8 @@ for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR))
                    numericCols)
 
     # Base columns (all other columns)
-    colsBaseTemp = filter(lambda c: c not in colsWinTemp + colsLossTemp, dataDict[df + 'SeasonStatsMatchup'].columns.tolist())    
+    colsBaseTemp = filter(lambda c: c not in colsWinTemp + colsLossTemp, 
+                          dataDict[df + 'SeasonStatsMatchup'].columns.tolist())    
     
     
     # Merge delta calculations with base dataframe
@@ -829,6 +836,28 @@ del(renameDict, seedNameDict, colsLossTemp, colsWinTemp, numericCols)
 colsBase += ['confMatchup', 'seedRankMatchup']
 
 
+def generateMatchupDeltas(df, excludeCols = [], label1 = 'A', label2 = 'B'):
+    
+    dfCols = df.columns.tolist()
+    
+    if type(excludeCols) != list:
+        excludeCols = list(excludeCols)
+    
+    objectCols = map(lambda c: df[c].dtype.isobject, dfCols)
+    excludeCols += objectCols
+    
+    numericCols = filter(lambda c: c not in excludeCols, dfCols)
+    
+    label1Cols = filter(lambda c: colsTeamFilter(c, label1), numericCols)
+    label2Cols = filter(lambda c: colsTeamFilter(c, label2), numericCols)
+
+
+    deltaDF = pd.DataFrame(zip(*[(df[l1Col] - df[l2Col]) 
+                            for l1Col, l2Col in zip(label1Cols, label2Cols)]),
+                            columns = map(lambda colName: colName[1:] + 'Delta', 
+                                          label1Cols))
+
+    return deltaDF
 
 #==============================================================================
 # CREATE SUBSET OF REGULAR SEASON TEAM STATISTICS FOR TOURNAMENT TEAMS ONLY
@@ -1028,11 +1057,13 @@ for df in gamesStatsDFs:
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
-
-
+# Filter independent columns for model input
+indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                            & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
+                dataDict[df + 'Mdl'].columns.tolist())
 
 # Model List
-mdlList = [ DecisionTreeClassifier(random_state = 1127) 
+mdlList = [ DecisionTreeClassifier(random_state = 1127), 
             RandomForestClassifier(random_state = 1127),
             LogisticRegression(random_state = 1127),
             KNeighborsClassifier(),
@@ -1077,9 +1108,7 @@ pipe = Pipeline([('sScale', StandardScaler()),
                  ('mdl', LogisticRegression(random_state = 1127))])
 
 
-indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
-                            & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
-                dataDict[df + 'Mdl'].columns.tolist())
+
 
 
 # Run grid search on modeling pipeline
@@ -1096,32 +1125,56 @@ x = timer()
 
 # Plot Results
 gridSearchResults = pd.DataFrame(pipe.cv_results_)
-gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], gridSearchResults['param_mdl'].values.tolist())
+gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], 
+                                gridSearchResults['param_mdl'].values.tolist())
 
-gridSearchResults.columns.tolist()
 
-for col in filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
+gsPlotCols = filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
                    gridSearchResults.columns.tolist())
 
 
+
 # Plot Results
-fig, ax = plt.subplots(1)
+fig, ax = plt.subplots(len(gsPlotCols))
+plt.suptitle('Grid Search Results by Model Type', fontsize = 36)
 
-ax = sns.swarmplot(x = 'mdl', y = 'mean_test_score', data = gridSearchResults)
-ax.tick_params(labelsize = 20)
-ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-ax.set_xlabel('Model Type', fontsize = 24)
-ax.set_ylabel('Accuracy', fontsize = 24)
-              
-              
-plt.legend()
-sns.boxplot()
+for i, col in enumerate(gsPlotCols):
+    sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
+    sns.swarmplot(x = 'mdl', y = col, 
+                  data = gridSearchResults, 
+                  ax = ax[i], 
+                  color = 'grey', 
+                  size = 6)
 
-pipe.named_steps['mdl']
+    #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+    ax[i].set_ylabel(col, fontsize = 24)
 
-x = pipe.cv_results
+    ax[i].grid()      
+       
+    if i == len(gsPlotCols) - 1:
+        ax[i].set_xlabel('Model Type', fontsize = 24)
+        ax[i].tick_params(labelsize = 20)
+    else:
+        ax[i].tick_params(axis = 'y', labelsize = 20)
+        ax[i].tick_params(axis = 'x', which = 'both', 
+                          top = 'off', bottom = 'off', 
+                          labelbottom = 'off')
 
-grid = GridSearchCV(pipe, cv=3, n_jobs=1, param_grid=param_grid)
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 mdlDict = {'dTree' : {'model' : DecisionTreeClassifier(random_state = 1127),
                       'gridParams' : {'min_samples_split' : np.arange(.05, .21, .05),
