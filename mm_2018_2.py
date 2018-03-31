@@ -93,6 +93,50 @@ def generateDataFrameColumnSummaries(df, returnDF = False):
     return colSummary
 
 
+
+
+def buildModelData2(gameDF, teamDF, 
+                    calculateMatchupStats = True,
+                    calculateDeltas = True,
+                    createMatchupFields = True
+                    ):
+    '''Randomnly split games data frames in half and swap columns for creating
+    model datasets.  gameDF data should be base columns only 
+    with shared stats and TeamIDs.
+        
+    Return dataframe of same shape with plus winnerA boolean column.'''
+
+    
+    baseCols = filter(lambda c: c not in ['WTeamID', 'LTeamID'],
+                      gameDF)
+    
+    # Split data
+    a, b = train_test_split(gameDF, test_size = 0.5, random_state = 1127)
+    
+    # Assign win & loss boolean
+    a['winnerA'], b['winnerA'] = 1, 0    
+    
+    # Rename columns with new labels
+    a.rename(columns = {'WTeamID':'ATeamID', 'LTeamID':'BTeamID'},
+             inplace = True)
+    b.rename(columns = {'LTeamID':'ATeamID', 'WTeamID':'BTeamID'},
+             inplace = True)
+    
+    # Combine new datasets
+    mdlData = pd.concat([a,b], axis = 0)   
+    
+    # Calculate matchup statistics if true
+    if calculateMatchupStats == True:
+        mdlData = generateGameMatchupStats2(mdlData, teamDF,
+                                            label1 = 'A', label2 = 'B',
+                                            calculateDeltas = calculateDeltas,
+                                            createMatchupFields = createMatchupFields)
+
+    
+    return mdlData
+
+
+
 def buildModelData(df):
     '''Randomnly split games data frames in half and swap columns for creating
     model datasets.
@@ -101,10 +145,16 @@ def buildModelData(df):
 
     #filter only numeric columns
     colNames = df.columns.tolist()
-    #colNames = filter(lambda c: df[c].dtype.hasobject == False, colNames)
+    #colNames = filter(lambda c: df[c].dtype.hasobject == False, colNames)   
     
-    wCols = filter(lambda col: (len(re.findall('^W.*', col))>0) & (col != 'WLoc'), colNames)
-    lCols = filter(lambda col: len(re.findall('^L.*', col))>0, colNames)
+    wCols = filter(lambda col: colsTeamFilter(col, 'W') & (col != 'WLoc'), 
+                   colNames)
+    lCols = filter(lambda col: colsTeamFilter(col, 'L'), 
+                   colNames)
+ 
+
+
+   
     baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
     deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', col)) > 0) | (col == 'scoreGap'), colNames)
 
@@ -135,44 +185,7 @@ def buildModelData(df):
     return mdlData
 
 
-def buildModelDataFold(df):
-    '''Randomnly split games data frames in half and swap columns for creating
-    model datasets.
-        
-    Return dataframe of same shape with plus winnerA boolean column.'''
 
-    colNames = dataDict[df].columns.tolist()
-    wCols = filter(lambda col: (len(re.findall('^W.*', col))>0) & (col != 'WLoc'), colNames)
-    lCols = filter(lambda col: len(re.findall('^L.*', col))>0, colNames)
-    baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
-    deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', c)) > 0) | (col == 'scoreGap'), colNames)
-    
-    aCols = map(lambda col: 'A' + col[1:], wCols)    
-    bCols = map(lambda col: 'B' + col[1:], wCols)    
-    
-    #a, b = train_test_split(dataDict[df], test_size = 0.5, random_state = 1127)
-    
-    # Reorder dataframes (flip winners and losers for b)
-    a = dataDict[df][baseCols + wCols + lCols]
-    b = dataDict[df][baseCols + lCols + wCols]
-    
-    # Assign classifaction for if Team A wins    
-    a['winnerA'] = 1
-    b['winnerA'] = 0
-
-    # Inverse deltas for b since order is reversed
-   
-    b[deltaCols] = b[deltaCols].applymap(lambda x: x * (-1.0))
-    
-    # Rename columns and stack dataframes
-    a.columns = baseCols + aCols + bCols + ['winnerA']
-    b.columns = baseCols + aCols + bCols + ['winnerA']
-    
-    mdlData = pd.concat([a,b], axis = 0)
-    
-    mdlData.index = range(len(mdlData))
-
-    return mdlData
 
 
 def generateMatchupField(df, matchupName, label1, label2):
@@ -227,7 +240,11 @@ def generateGameMatchupStats(gameDF, teamDF,
 
 
 
-def modelAnalysis(model, data = [], targetCol = None, indCols = None, testTrainDataList = [], testTrainSplit = 0.2):
+def modelAnalysis(model, data = [], 
+                  targetCol = None, 
+                  indCols = None, 
+                  testTrainDataList = [], 
+                  testTrainSplit = 0.2):
     
     if indCols == None:
         indCols = filter(lambda col: ((data[col].dtype.hasobject == False) 
@@ -407,6 +424,9 @@ def plotCorrHeatMap(corrData, ax = None,
                     plotTitleFontSize = 24,
                     tickLabelSize = 16):
 
+    '''Plot heatmap of correlation matrix. Only plots the lower
+        left corner of the correlation matrix if maskHalf == True.'''
+
     if ax == None:
        fig, ax = plt.subplots(1)  
 
@@ -432,18 +452,20 @@ def colsTeamFilter(col, teamLabel):
 
 
 
-def generateMatchupDeltas(df, label1 = 'A', label2 = 'B', 
-                          excludeCols = ['ATeamID', 'BTeamID']):
+def generateMatchupDeltas(df, label1, label2, excludeCols = []):
     '''Calculate deltas bewtween matching metric columns
     
         Return dataframe of delta metrics with column labels as same
-        base name + 'Delta' '''
+        base name + 'Delta' '''    
     
     dfCols = df.columns.tolist()
     
     # Error handling of exclusion list
     if type(excludeCols) != list:
         excludeCols = list(excludeCols)
+    
+    # Add teamID fields to exclusion list
+    excludeCols += [label1 + 'TeamID', label2 + 'TeamID']    
     
     # Find all numeric columns
     objectCols = filter(lambda c: df[c].dtype.hasobject, dfCols)
@@ -479,6 +501,50 @@ def generateMatchupDeltas(df, label1 = 'A', label2 = 'B',
 
     return deltaDF
 
+
+
+def generateGameMatchupStats2(gameDF, teamDF, 
+                             teamID1, teamID2, 
+                             label1 = 'A', label2 = 'B',
+                             extraMergeFields = ['Season'],
+                             calculateDeltas = True,
+                             deltaExcludeFields = [],
+                             deltaFields = ['seedRank', 'OrdinalRank'],
+                             createMatchupFields = True,
+                             matchupFields = [('confMatchup', 'ConfAbbrev'), 
+                                              ('seedRankMatchup', 'seedRank')]):
+    
+    '''Create a new dataframe with team matchup statistics based on two
+        teamIDs. 
+        
+        TeamDF should have index set to mergeFields.'''
+    
+    for x in [(teamID1, label1), (teamID2, label2)]:
+        teamID, teamLabel = x[0], x[1]        
+        mergeFields = extraMergeFields + [teamID]
+        gameDFcols = gameDF.columns.tolist()
+        
+        # Add label to teamDF columns to match TeamID label        
+        teamDFcols = map(lambda label: teamLabel + label, teamDF.columns.tolist())
+        
+        gameDF = gameDF.merge(teamDF, left_on = mergeFields, right_index = True)
+        gameDF.columns = gameDFcols + teamDFcols
+        
+    if createMatchupFields == True:
+        
+        for field in matchupFields:        
+            gameDF[field[0]] = generateMatchupField(gameDF, field[1], label1, label2)
+    
+    if calculateDeltas == True:
+        dfDelta = generateMatchupDeltas(gameDF, 
+                                        label1 = label1, 
+                                        label2 = label2,
+                                        excludeCols = deltaExcludeFields + [label1 + 'TeamID',
+                                                                            label2 + 'TeamID'])
+        
+        gameDF = gameDF.merge(dfDelta, left_index = True, right_index = True)     
+            
+    return gameDF
 
 #==============================================================================
 # END FUNCTIONS
@@ -556,9 +622,11 @@ dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFile
 
 # Lists of games data (C =C ompact, D = Detailed)
 gamesData = ['tGamesC', 'tGamesD', 'rGamesC', 'rGamesD']
-gamesDataC = ['tGamesC', 'rGamesC']
-gamesDataD = ['tGamesD', 'rGamesD']
-
+#==============================================================================
+# gamesDataC = ['tGamesC', 'rGamesC']
+# gamesDataD = ['tGamesD', 'rGamesD']
+# gamesDataT, gamesDataR = gamesData[:2], gamesData[2:]
+#==============================================================================
 
 
 #for df in ['rGamesC', 'rGamesD']:
@@ -623,8 +691,8 @@ colSumDict = {}
 # Label column types
 colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scoreGap']   
 
-colsWinFilter = lambda c: c.startswith('W') & (c != 'WLoc')
-colsLossFilter = lambda c: c.startswith('L')
+colsWinFilter = lambda c: colsTeamFilter(c, 'W') & (c != 'WLoc')
+colsLossFilter = lambda c: colsTeamFilter(c, 'L')
    
 
     
@@ -796,6 +864,10 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
     colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], returnDF=True)
                                      
 
+
+
+
+
   
 #==============================================================================
 # CREATE NEW TOURNAMENT MATCHUPS USING TEAM SEASON STATISTICS
@@ -806,11 +878,22 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 #==============================================================================
 
 # Align Complete and Detailed Datasets for compact and detailed datasets
-gamesDataT = filter(lambda g: g.startswith('t'), gamesData)
-gamesDataR = filter(lambda g: g.startswith('r'), gamesData)
-gamesDataT.sort()
-gamesDataR.sort()
+#==============================================================================
+# gamesDataT = filter(lambda g: g.startswith('t'), gamesData)
+# gamesDataR = filter(lambda g: g.startswith('r'), gamesData)
+# gamesDataT.sort()
+# gamesDataR.sort()
+#==============================================================================
 
+
+for df in filter(lambda g: g.startswith('t'), gamesData):
+    regDF = 'r' + df[1:]    
+    dataDict[df + 'SeasonStatsMatchup'] = generateGameMatchupStats2(gameDF = dataDict[df],
+                                                                    teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                                                    label1= 'W', label2 = 'L')
+
+
+####################################
 
 for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR)):
 
@@ -855,27 +938,33 @@ for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR))
     colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
 
 
-    # Generate new dataframe with deltas between winning and losing teams
-    numericCols =  colSumDict[df + 'SeasonStatsMatchup'][~colSumDict[df + 'SeasonStatsMatchup']['isObject']]['colName'].values.tolist()  
-    colsWinTemp = filter(lambda c: colsWinFilter(c) & (c != 'WTeamID'),
-                  numericCols)
-    colsLossTemp = filter(lambda c: colsLossFilter(c) & (c != 'LTeamID'), 
-                   numericCols)
-
-    # Base columns (all other columns)
-    colsBaseTemp = filter(lambda c: c not in colsWinTemp + colsLossTemp, 
-                          dataDict[df + 'SeasonStatsMatchup'].columns.tolist())    
-    
-    
-    # Merge delta calculations with base dataframe
-    dataDict[df + 'SeasonStatsMatchupDeltas'] = pd.concat(
-                                                    [dataDict[df + 'SeasonStatsMatchup'][colsBaseTemp],
-                                                     pd.DataFrame(zip(*[(dataDict[df + 'SeasonStatsMatchup'][colWin] 
-                                                                         - dataDict[df + 'SeasonStatsMatchup'][colLoss]) 
-                                                                         for colWin, colLoss in zip(colsWinTemp, colsLossTemp)]),
-                                           columns = map(lambda colName: colName[1:] + 'Delta',
-                                                         colsWinTemp))],
-                                                         axis = 1)
+#==============================================================================
+#     # Generate new dataframe with deltas between winning and losing teams
+#     numericCols =  colSumDict[df + 'SeasonStatsMatchup'][~colSumDict[df + 'SeasonStatsMatchup']['isObject']]['colName'].values.tolist()  
+#     colsWinTemp = filter(lambda c: colsWinFilter(c) & (c != 'WTeamID'),
+#                   numericCols)
+#     colsLossTemp = filter(lambda c: colsLossFilter(c) & (c != 'LTeamID'), 
+#                    numericCols)
+# 
+#     # Base columns (all other columns)
+#     colsBaseTemp = filter(lambda c: c not in colsWinTemp + colsLossTemp, 
+#                           dataDict[df + 'SeasonStatsMatchup'].columns.tolist())    
+#     
+#     
+#     # Merge delta calculations with base dataframe
+#     
+#     dataDict[df + 'SeasonStatsMatchupDeltas'] = pd.concat(
+#                                                     [dataDict[df + 'SeasonStatsMatchup'][colsBaseTemp],
+#                                                      pd.DataFrame(zip(*[(dataDict[df + 'SeasonStatsMatchup'][colWin] 
+#                                                                          - dataDict[df + 'SeasonStatsMatchup'][colLoss]) 
+#                                                                          for colWin, colLoss in zip(colsWinTemp, colsLossTemp)]),
+#                                            columns = map(lambda colName: colName[1:] + 'Delta',
+#                                                          colsWinTemp))],
+#                                                          axis = 1)
+# 
+# 
+#==============================================================================
+    dataDict[df + 'SeasonStatsMatchupDeltas'] = generateMatchupDeltas(dataDict[df + 'SeasonStatsMatchup'], label1='W', label2='L')
 
     colSumDict[df + 'SeasonStatsMatchupDeltas'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchupDeltas'], returnDF=True)
 
@@ -2171,6 +2260,58 @@ tPredictClean.to_csv(fName + '.csv', index = False, header = True)
 #==============================================================================
 #==============================================================================
 #==============================================================================
+
+
+
+
+
+#==============================================================================
+# def buildModelDataFold(df):
+#     '''Randomnly split games data frames in half and swap columns for creating
+#     model datasets.
+#         
+#     Return dataframe of same shape with plus winnerA boolean column.'''
+# 
+#     colNames = dataDict[df].columns.tolist()
+#     wCols = filter(lambda col: (len(re.findall('^W.*', col))>0) & (col != 'WLoc'), colNames)
+#     lCols = filter(lambda col: len(re.findall('^L.*', col))>0, colNames)
+#     baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
+#     deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', c)) > 0) | (col == 'scoreGap'), colNames)
+#     
+#     aCols = map(lambda col: 'A' + col[1:], wCols)    
+#     bCols = map(lambda col: 'B' + col[1:], wCols)    
+#     
+#     #a, b = train_test_split(dataDict[df], test_size = 0.5, random_state = 1127)
+#     
+#     # Reorder dataframes (flip winners and losers for b)
+#     a = dataDict[df][baseCols + wCols + lCols]
+#     b = dataDict[df][baseCols + lCols + wCols]
+#     
+#     # Assign classifaction for if Team A wins    
+#     a['winnerA'] = 1
+#     b['winnerA'] = 0
+# 
+#     # Inverse deltas for b since order is reversed
+#    
+#     b[deltaCols] = b[deltaCols].applymap(lambda x: x * (-1.0))
+#     
+#     # Rename columns and stack dataframes
+#     a.columns = baseCols + aCols + bCols + ['winnerA']
+#     b.columns = baseCols + aCols + bCols + ['winnerA']
+#     
+#     mdlData = pd.concat([a,b], axis = 0)
+#     
+#     mdlData.index = range(len(mdlData))
+# 
+#     return mdlData
+#==============================================================================
+
+
+
+
+
+
+
 
 
 #==============================================================================
