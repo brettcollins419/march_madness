@@ -511,6 +511,7 @@ def generateGameMatchupStats2(gameDF, teamDF,
                              label1 = 'A', label2 = 'B',
                              extraMergeFields = ['Season'],
                              calculateDeltas = True,
+                             returnStatCols = True,
                              deltaExcludeFields = [],
                              createMatchupFields = True,
                              matchupFields = [('confMatchup', 'ConfAbbrev'), 
@@ -532,11 +533,7 @@ def generateGameMatchupStats2(gameDF, teamDF,
         gameDF = gameDF.merge(teamDF, left_on = mergeFields, right_index = True)
         gameDF.columns = gameDFcols + teamDFcols
         
-    if createMatchupFields == True:
-        
-        for field in matchupFields:        
-            gameDF[field[0]] = generateMatchupField(gameDF, field[1], label1, label2)
-    
+
     if calculateDeltas == True:
         dfDelta = generateMatchupDeltas(gameDF, 
                                         label1 = label1, 
@@ -544,8 +541,17 @@ def generateGameMatchupStats2(gameDF, teamDF,
                                         excludeCols = deltaExcludeFields + [label1 + 'TeamID',
                                                                             label2 + 'TeamID'])
         
-        gameDF = gameDF.merge(dfDelta, left_index = True, right_index = True)     
-            
+        if returnStatCols == True: 
+            gameDF = gameDF.merge(dfDelta, left_index = True, right_index = True)     
+         
+        else: gameDF = dfDelta
+          
+          
+    if createMatchupFields == True:
+        for field in matchupFields:        
+            gameDF[field[0]] = generateMatchupField(gameDF, field[1], label1, label2)
+              
+
     return gameDF
 
 #==============================================================================
@@ -892,10 +898,6 @@ baseColsM = ['Season', 'DayNum', 'ATeamID', 'BTeamID']
 for df in filter(lambda g: g.startswith('t'), gamesData):
    
     regDF = 'r' + df[1:]    
-    dataDict[df + 'SeasonStatsMatchup'] = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
-                                                                    teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                                                    teamID1 = 'WTeamID', teamID2 = 'LTeamID',
-                                                                    label1 = 'W', label2 = 'L')
 
     teamStats = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
                                           teamDF = dataDict[regDF + 'TeamSeasonStats'],
@@ -911,7 +913,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                           label1 = 'WSeed', label2 = 'LSeed')
          
 
-    dataDict[df + 'SeasonStatsMatchup'] = teamStats.merge(seedStats, 
+    dataDict[df + 'SeasonStatsMatchup'] = teamStats.merge(seedStats.drop(['WseedRank', 'LseedRank'], axis = 1), 
                                                           left_on = baseCols, 
                                                           right_on = baseCols)  
 
@@ -928,9 +930,12 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                    
                    
                    
-    dataDict[df + 'modelData'] = teamStatsM.merge(seedStatsM, 
+    dataDict[df + 'modelData'] = teamStatsM.merge(seedStatsM.drop(['AseedRank', 'BseedRank'], axis = 1), 
                                                           left_on = baseColsM, 
                                                           right_on = baseColsM) 
+
+    colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
+    colSumDict[df + 'modelData'] = generateDataFrameColumnSummaries(dataDict[df + 'modelData'], returnDF=True)
 
     del(teamStats, teamStatsM, seedStats, seedStatsM)
     
@@ -1040,7 +1045,7 @@ for df in ['rGamesCTeamSeasonStats', 'rGamesDTeamSeasonStats']:
 corrExcludeCols = filter(lambda c: c != 'scoreGap', colsBase + ['WTeamID', 'LTeamID'])
 
 
-for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesDataT):
+for df in map(lambda n: n + 'SeasonStatsMatchup', filter(lambda d: d.startswith('t'), gamesData)):
     corrColsTemp = filter(lambda c: c not in corrExcludeCols, dataDict[df].columns.tolist())    
     dataDict[df + 'Corr'] = dataDict[df][corrColsTemp].corr()
     
@@ -1061,7 +1066,7 @@ for df in map(lambda n: n + 'SeasonStatsMatchupDeltas', gamesDataT):
 #       develop contribution of each axis
 
 
-teamStatsDFs = filter(lambda dfName: len(re.findall('.*TeamSeasonStats.*', dfName))>0, 
+teamStatsDFs = filter(lambda dfName: len(re.findall('t.*TeamSeasonStats.*', dfName))>0, 
                       dataDict.iterkeys())
 gamesStatsDFs = filter(lambda dfName: len(re.findall('t.*SeasonStatsMatchup.*', dfName))>0, 
                        dataDict.iterkeys())
@@ -1100,6 +1105,8 @@ for df in teamStatsDFs:
     
     # Determine how many labels to plot so that axis isn' cluttered
     axisLabelFreq = len(pcaCols) // 20 + 1
+    xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
+    xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
     
     # Plot feature weights for each component
     sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
@@ -1111,7 +1118,7 @@ for df in teamStatsDFs:
                 yticklabels = axisLabelFreq)
     
     # Add feature lables & format plot    
-    axs[0].set_xticklabels(dataDict[df][pcaCols].columns.tolist(), 
+    axs[0].set_xticklabels(xAxisLabels, 
                            fontsize = tickFontSize,
                            rotation = 90)
     axs[0].tick_params(labelsize = tickFontSize)
@@ -1164,6 +1171,8 @@ for df in gamesStatsDFs:
     
     # Determine how many labels to plot so that axis isn' cluttered
     axisLabelFreq = len(pcaCols) // 20 + 1
+    xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
+    xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
     
     # Plot feature weights for each component
     sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
@@ -1175,7 +1184,7 @@ for df in gamesStatsDFs:
                 yticklabels = axisLabelFreq)
     
     # Add feature lables & format plot    
-    axs[0].set_xticklabels(dataDict[df][pcaCols].columns.tolist(), 
+    axs[0].set_xticklabels(xAxisLabels, 
                            fontsize = tickFontSize,
                            rotation = 90)
     axs[0].tick_params(labelsize = tickFontSize)
