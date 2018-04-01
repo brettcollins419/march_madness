@@ -102,9 +102,11 @@ def buildModelData2(gameDF, teamDF,
                     ):
     '''Randomnly split games data frames in half and swap columns for creating
     model datasets.  gameDF data should be base columns only 
-    with shared stats and TeamIDs.
+    with shared stats and TeamIDs.  After splitting and swapping 50% of the records
+    look up team metrics for filling in matchup using generateGameMatchupStats
+    function.
         
-    Return dataframe of same shape with plus winnerA boolean column.'''
+    Return dataframe of team statistics matchup plus winnerA boolean column.'''
 
     
     baseCols = filter(lambda c: c not in ['WTeamID', 'LTeamID'],
@@ -128,6 +130,7 @@ def buildModelData2(gameDF, teamDF,
     # Calculate matchup statistics if true
     if calculateMatchupStats == True:
         mdlData = generateGameMatchupStats2(mdlData, teamDF,
+                                            teamID1 = 'ATeamID', teamID2 = 'BTeamID',
                                             label1 = 'A', label2 = 'B',
                                             calculateDeltas = calculateDeltas,
                                             createMatchupFields = createMatchupFields)
@@ -509,7 +512,6 @@ def generateGameMatchupStats2(gameDF, teamDF,
                              extraMergeFields = ['Season'],
                              calculateDeltas = True,
                              deltaExcludeFields = [],
-                             deltaFields = ['seedRank', 'OrdinalRank'],
                              createMatchupFields = True,
                              matchupFields = [('confMatchup', 'ConfAbbrev'), 
                                               ('seedRankMatchup', 'seedRank')]):
@@ -885,14 +887,56 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 # gamesDataR.sort()
 #==============================================================================
 
-
+baseCols = ['Season', 'DayNum', 'WTeamID', 'LTeamID'] 
+baseColsM = ['Season', 'DayNum', 'ATeamID', 'BTeamID']
 for df in filter(lambda g: g.startswith('t'), gamesData):
+   
     regDF = 'r' + df[1:]    
-    dataDict[df + 'SeasonStatsMatchup'] = generateGameMatchupStats2(gameDF = dataDict[df],
+    dataDict[df + 'SeasonStatsMatchup'] = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
                                                                     teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                                                    label1= 'W', label2 = 'L')
+                                                                    teamID1 = 'WTeamID', teamID2 = 'LTeamID',
+                                                                    label1 = 'W', label2 = 'L')
+
+    teamStats = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
+                                          teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                          teamID1 = 'WTeamID', teamID2 = 'LTeamID',
+                                          label1 = 'W', label2 = 'L')
 
 
+    seedStats = generateGameMatchupStats2(gameDF = teamStats[baseCols + ['WseedRank', 'LseedRank']],
+                                          teamDF = dataDict[df + 'SeedStats'],
+                                          teamID1 = 'WseedRank', teamID2 = 'LseedRank',
+                                          extraMergeFields=[],
+                                          createMatchupFields=False,
+                                          label1 = 'WSeed', label2 = 'LSeed')
+         
+
+    dataDict[df + 'SeasonStatsMatchup'] = teamStats.merge(seedStats, 
+                                                          left_on = baseCols, 
+                                                          right_on = baseCols)  
+
+            
+    teamStatsM = buildModelData2(gameDF = dataDict[df][baseCols],
+                                 teamDF = dataDict[regDF + 'TeamSeasonStats'])
+                                 
+    seedStatsM = generateGameMatchupStats2(gameDF = teamStatsM[baseColsM + ['AseedRank', 'BseedRank']],
+                                          teamDF = dataDict[df + 'SeedStats'],
+                                          teamID1 = 'AseedRank', teamID2 = 'BseedRank',
+                                          extraMergeFields=[],
+                                          createMatchupFields=False,
+                                          label1 = 'WSeed', label2 = 'LSeed')                           
+                   
+                   
+                   
+    dataDict[df + 'modelData'] = teamStatsM.merge(seedStatsM, 
+                                                          left_on = baseColsM, 
+                                                          right_on = baseColsM) 
+
+    del(teamStats, teamStatsM, seedStats, seedStatsM)
+    
+    
+    
+    
 ####################################
 
 for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR)):
