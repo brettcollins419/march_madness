@@ -943,49 +943,51 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     
 ####################################
-
-for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR)):
-
-    # Base dataframe for merging
-    dataDict[df + 'SeasonStatsMatchup'] = dataDict[df][colsBase + ['WTeamID', 'LTeamID']]
-    
-    for t in ('W', 'L'):
-        # Rename columns before merging
-        renameDict = dict(zip(dataDict[dfM].columns.tolist(),
-                          map(lambda n: t + n, dataDict[dfM].columns.tolist())))
-            
-        
-        # Merge DataFrames
-        dataDict[df + 'SeasonStatsMatchup'] = dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[dfM].rename(columns = renameDict),
-                                                                                        how = 'left',
-                                                                                        left_on = ['Season', t + 'TeamID'], 
-                                                                                        right_index = True)
-
- 
-        # ADD OVERALL SEED AVERAGE METRICS TO TOURNAMENT DATA                                                                                       
-        if df.startswith('t'):
-
-            # Relabel Seed data
-            seedNameDict = dict(zip(dataDict[df + 'SeedStats'].columns.tolist(),
-                                    map(lambda n: t + 'Seed' + n, 
-                                        dataDict[df + 'SeedStats'].columns.tolist())))
-            
-            dataDict[df + 'SeasonStatsMatchup'] = (
-                dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[df + 'SeedStats'].rename(columns = seedNameDict),
-                                                          left_on = t + 'seedRank', 
-                                                          right_index = True)
-                                                )
-
-     # Calculate matchup pairs
-    for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
-        dataDict[df + 'SeasonStatsMatchup'][matchup[0]] = generateMatchupField(df = dataDict[df + 'SeasonStatsMatchup'], 
-                                                                               matchupName = matchup[1], 
-                                                                                label1 = 'W', 
-                                                                                label2 = 'L')
-
-    # Cacluate column stats
-    colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
-
+#==============================================================================
+# 
+# for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR)):
+# 
+#     # Base dataframe for merging
+#     dataDict[df + 'SeasonStatsMatchup'] = dataDict[df][colsBase + ['WTeamID', 'LTeamID']]
+#     
+#     for t in ('W', 'L'):
+#         # Rename columns before merging
+#         renameDict = dict(zip(dataDict[dfM].columns.tolist(),
+#                           map(lambda n: t + n, dataDict[dfM].columns.tolist())))
+#             
+#         
+#         # Merge DataFrames
+#         dataDict[df + 'SeasonStatsMatchup'] = dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[dfM].rename(columns = renameDict),
+#                                                                                         how = 'left',
+#                                                                                         left_on = ['Season', t + 'TeamID'], 
+#                                                                                         right_index = True)
+# 
+#  
+#         # ADD OVERALL SEED AVERAGE METRICS TO TOURNAMENT DATA                                                                                       
+#         if df.startswith('t'):
+# 
+#             # Relabel Seed data
+#             seedNameDict = dict(zip(dataDict[df + 'SeedStats'].columns.tolist(),
+#                                     map(lambda n: t + 'Seed' + n, 
+#                                         dataDict[df + 'SeedStats'].columns.tolist())))
+#             
+#             dataDict[df + 'SeasonStatsMatchup'] = (
+#                 dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[df + 'SeedStats'].rename(columns = seedNameDict),
+#                                                           left_on = t + 'seedRank', 
+#                                                           right_index = True)
+#                                                 )
+# 
+#      # Calculate matchup pairs
+#     for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
+#         dataDict[df + 'SeasonStatsMatchup'][matchup[0]] = generateMatchupField(df = dataDict[df + 'SeasonStatsMatchup'], 
+#                                                                                matchupName = matchup[1], 
+#                                                                                 label1 = 'W', 
+#                                                                                 label2 = 'L')
+# 
+#     # Cacluate column stats
+#     colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
+# 
+#==============================================================================
 
 #==============================================================================
 #     # Generate new dataframe with deltas between winning and losing teams
@@ -1232,6 +1234,14 @@ indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'
                             & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
                 dataDict[df + 'Mdl'].columns.tolist())
 
+
+df = 'tGamesC'
+# Modeling columns for new pipeline
+indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                            & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
+                dataDict[df + 'modelData'].columns.tolist())
+
+
 # Model List
 mdlList = [ DecisionTreeClassifier(random_state = 1127), 
             RandomForestClassifier(random_state = 1127),
@@ -1240,8 +1250,8 @@ mdlList = [ DecisionTreeClassifier(random_state = 1127),
             SVC(random_state = 1127, probability = True)]
 
 # Configure parameter grid for pipeline
-paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
-                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                 'mdl' : [DecisionTreeClassifier(random_state = 1127), 
                          RandomForestClassifier(random_state = 1127,
                                                          n_estimators = 100,
@@ -1252,21 +1262,21 @@ paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCol
                 
                 },
                 
-            {'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
-                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+            {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                 'mdl' : [LogisticRegression(random_state = 1127)],
                 'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
                 },
                 
-            {'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
-                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+            {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                 'mdl' : [SVC(probability = True)],
                 'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
                 'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
                 },
                 
-            {'fReduce__n_components' : range(3, len(dataDict[df + 'Mdl'][indCols].columns),
-                                              len(dataDict[df + 'Mdl'][indCols].columns) // 4),
+            {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                 'mdl' : [KNeighborsClassifier()],
                 'mdl__n_neighbors' : range(3, 10, 2)
                 
@@ -1284,8 +1294,8 @@ pipe = Pipeline([('sScale', StandardScaler()),
 # Run grid search on modeling pipeline
 timer()
 pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
-                      data = dataDict[df + 'Mdl'],
-                      indCols = indCols,
+                      data = dataDict[df + 'modelData'],
+                      indCols = indCols2,
                       targetCol = 'winnerA',
                       testTrainSplit = 0.2,
                       gridSearch=True,
