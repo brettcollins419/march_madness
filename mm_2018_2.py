@@ -1312,19 +1312,42 @@ gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0],
 gsPlotCols = filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
                    gridSearchResults.columns.tolist())
 
+# Get summary for each model type and best model for each model type
+mdlBests = []
+for label, metric in [('mean', np.mean), ('median', np.median), ('max',np.max)]:
+    
+    t = gridSearchResults.groupby('mdl').agg({'mean_test_score':metric})
+    t.rename(columns = {'mean_test_score':label}, inplace = True)
+    mdlBests.append(t)
+    
+del(t)    
+    
+mdlBests = pd.concat(mdlBests, axis = 1)
 
+mdlBests = (mdlBests.set_index('max', append = True)
+                    .merge(gridSearchResults[['mdl', 'mean_test_score', 'param_mdl', 'params']], 
+                           left_index = True, 
+                           right_on = ['mdl', 'mean_test_score'], 
+                           how = 'inner')
+                           )
+
+
+type(mdlBests['param_mdl'].iloc[0])
 
 # Plot Results
 fig, ax = plt.subplots(len(gsPlotCols))
 plt.suptitle('Grid Search Results by Model Type', fontsize = 36)
 
+swPlot = False
+
 for i, col in enumerate(gsPlotCols):
     sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
-    sns.swarmplot(x = 'mdl', y = col, 
-                  data = gridSearchResults, 
-                  ax = ax[i], 
-                  color = 'grey', 
-                  size = 6)
+    if swPlot == True:    
+        sns.swarmplot(x = 'mdl', y = col, 
+                      data = gridSearchResults, 
+                      ax = ax[i], 
+                      color = 'grey', 
+                      size = 6)
 
     #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
     ax[i].set_ylabel(col, fontsize = 24)
