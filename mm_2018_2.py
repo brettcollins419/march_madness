@@ -1235,141 +1235,153 @@ indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'
                 dataDict[df + 'Mdl'].columns.tolist())
 
 
-df = 'tGamesC'
-# Modeling columns for new pipeline
-indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
-                            & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
-                dataDict[df + 'modelData'].columns.tolist())
+modelDict = {}
 
-
-# Model List
-mdlList = [ DecisionTreeClassifier(random_state = 1127), 
-            RandomForestClassifier(random_state = 1127),
-            LogisticRegression(random_state = 1127),
-            KNeighborsClassifier(),
-            SVC(random_state = 1127, probability = True)]
-
-# Configure parameter grid for pipeline
-paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                'mdl' : [DecisionTreeClassifier(random_state = 1127), 
-                         RandomForestClassifier(random_state = 1127,
-                                                         n_estimators = 100,
-                                                         n_jobs = -1,
-                                                         verbose = 0)],
-                'mdl__min_samples_split' : map(lambda c: c/20, range(1, 5)),
-                'mdl__min_samples_leaf' : xrange(2, 10, 4)
-                
-                },
-                
-            {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                'mdl' : [LogisticRegression(random_state = 1127)],
-                'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
-                },
-                
-            {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                'mdl' : [SVC(probability = True)],
-                'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
-                'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
-                },
-                
-            {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                              len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                'mdl' : [KNeighborsClassifier()],
-                'mdl__n_neighbors' : range(3, 10, 2)
-                
-                }]
-
-# Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
-pipe = Pipeline([('sScale', StandardScaler()), 
-                 ('fReduce', PCA(n_components = 10)),
-                 ('mdl', LogisticRegression(random_state = 1127))])
-
-
-
-
-
-# Run grid search on modeling pipeline
-timer()
-pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
-                      data = dataDict[df + 'modelData'],
-                      indCols = indCols2,
-                      targetCol = 'winnerA',
-                      testTrainSplit = 0.2,
-                      gridSearch=True,
-                      paramGrid=paramGrid)
-x = timer()
-
-
-# Plot Results
-gridSearchResults = pd.DataFrame(pipe.cv_results_)
-gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], 
-                                gridSearchResults['param_mdl'].values.tolist())
-
-
-gsPlotCols = filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
-                   gridSearchResults.columns.tolist())
-
-# Get summary for each model type and best model for each model type
-mdlBests = []
-for label, metric in [('mean', np.mean), ('median', np.median), ('max',np.max)]:
+for df in filter(lambda g: g.startswith('t'), gamesData):
     
-    t = gridSearchResults.groupby('mdl').agg({'mean_test_score':metric})
-    t.rename(columns = {'mean_test_score':label}, inplace = True)
-    mdlBests.append(t)
+    modelDict[df] = {}
     
-del(t)    
+    # Modeling columns for new pipeline
+    indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                                & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
+                    dataDict[df + 'modelData'].columns.tolist())
     
-mdlBests = pd.concat(mdlBests, axis = 1)
-
-mdlBests = (mdlBests.set_index('max', append = True)
-                    .merge(gridSearchResults[['mdl', 'mean_test_score', 'param_mdl', 'params']], 
-                           left_index = True, 
-                           right_on = ['mdl', 'mean_test_score'], 
-                           how = 'inner')
-                           )
-
-
-type(mdlBests['param_mdl'].iloc[0])
-
-# Plot Results
-fig, ax = plt.subplots(len(gsPlotCols))
-plt.suptitle('Grid Search Results by Model Type', fontsize = 36)
-
-swPlot = False
-
-for i, col in enumerate(gsPlotCols):
-    sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
-    if swPlot == True:    
-        sns.swarmplot(x = 'mdl', y = col, 
-                      data = gridSearchResults, 
-                      ax = ax[i], 
-                      color = 'grey', 
-                      size = 6)
-
-    #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-    ax[i].set_ylabel(col, fontsize = 24)
-
-    ax[i].grid()      
-       
-    if i == len(gsPlotCols) - 1:
-        ax[i].set_xlabel('Model Type', fontsize = 24)
-        ax[i].tick_params(labelsize = 20)
-    else:
-        ax[i].tick_params(axis = 'y', labelsize = 20)
-        ax[i].tick_params(axis = 'x', which = 'both', 
-                          top = 'off', bottom = 'off', 
-                          labelbottom = 'off')
-
     
+    # Model List
+    mdlList = [ DecisionTreeClassifier(random_state = 1127), 
+                RandomForestClassifier(random_state = 1127),
+                LogisticRegression(random_state = 1127),
+                KNeighborsClassifier(),
+                SVC(random_state = 1127, probability = True)]
+    
+    # Configure parameter grid for pipeline
+    paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                    'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+                             RandomForestClassifier(random_state = 1127,
+                                                             n_estimators = 100,
+                                                             n_jobs = -1,
+                                                             verbose = 0)],
+                    'mdl__min_samples_split' : map(lambda c: c/20, range(1, 5)),
+                    'mdl__min_samples_leaf' : xrange(2, 10, 4)
+                    
+                    },
+                    
+                {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                    'mdl' : [LogisticRegression(random_state = 1127)],
+                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
+                    },
+                    
+                {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                    'mdl' : [SVC(probability = True)],
+                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
+                    'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
+                    },
+                    
+                {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
+                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                    'mdl' : [KNeighborsClassifier()],
+                    'mdl__n_neighbors' : range(3, 10, 2)
+                    
+                    }]
+    
+    # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
+    pipe = Pipeline([('sScale', StandardScaler()), 
+                     ('fReduce', PCA(n_components = 10)),
+                     ('mdl', LogisticRegression(random_state = 1127))])
+    
+    
+    
+    
+    
+    # Run grid search on modeling pipeline
+    timer()
+    pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
+                          data = dataDict[df + 'modelData'],
+                          indCols = indCols2,
+                          targetCol = 'winnerA',
+                          testTrainSplit = 0.2,
+                          gridSearch=True,
+                          paramGrid=paramGrid)
+    modelDict['calcTime'] = timer()
+    
+    
+    
+    
+    # Plot Results
+    gridSearchResults = pd.DataFrame(pipe.cv_results_)
+    gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], 
+                                    gridSearchResults['param_mdl'].values.tolist())
+    
+    
+    gsPlotCols = filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
+                       gridSearchResults.columns.tolist())
+    
+    # Get summary for each model type and best model for each model type
+    mdlBests = []
+    for label, metric in [('mean', np.mean), ('median', np.median), ('max',np.max)]:
+        
+        t = gridSearchResults.groupby('mdl').agg({'mean_test_score':metric})
+        t.rename(columns = {'mean_test_score':label}, inplace = True)
+        mdlBests.append(t)
+        
+    del(t)    
+        
+    mdlBests = pd.concat(mdlBests, axis = 1)
+    
+    mdlBests = (mdlBests.set_index('max', append = True)
+                        .merge(gridSearchResults[['mdl', 'mean_test_score', 'param_mdl', 'params']], 
+                               left_index = True, 
+                               right_on = ['mdl', 'mean_test_score'], 
+                               how = 'inner')
+                               )
+    mdlBests.rename(columns = {'mean_test_score':'max'}, inplace = True)
+    
+    modelDict[df]['bests'] = mdlBests
+    modelDict[df]['gridResults'] = gridSearchResults
+    
+    #type(mdlBests['param_mdl'].iloc[0])
+    
+    # Plot Results
+    fig, ax = plt.subplots(len(gsPlotCols))
+    plt.suptitle('Grid Search Results by Model Type', fontsize = 36)
+    
+    swPlot = True
+    
+    for i, col in enumerate(gsPlotCols):
+        sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
+        if swPlot == True:    
+            sns.swarmplot(x = 'mdl', y = col, 
+                          data = gridSearchResults, 
+                          ax = ax[i], 
+                          color = 'grey', 
+                          size = 6)
+    
+        #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+        ax[i].set_ylabel(col, fontsize = 24)
+    
+        ax[i].grid()      
+           
+        if i == len(gsPlotCols) - 1:
+            ax[i].set_xlabel('Model Type', fontsize = 24)
+            ax[i].tick_params(labelsize = 20)
+        else:
+            ax[i].tick_params(axis = 'y', labelsize = 20)
+            ax[i].tick_params(axis = 'x', which = 'both', 
+                              top = 'off', bottom = 'off', 
+                              labelbottom = 'off')
+    
+        
 
 
+del(mdlBests, gridSearchResults, gsPlotCols)
 
-
-
-
+plt.figure()
+sns.lmplot(x = 'param_fReduce__n_components', 
+           y = 'mean_test_score', 
+           data=gridSearchResults)
 
 
 
