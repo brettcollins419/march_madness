@@ -32,7 +32,7 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import classification_report, confusion_matrix, auc, roc_auc_score, accuracy_score
+from sklearn.metrics import classification_report, confusion_matrix, auc, roc_auc_score, accuracy_score, roc_curve
 from sklearn.pipeline import Pipeline
 
 
@@ -304,8 +304,16 @@ def modelAnalysisPipeline(modelPipe, data = [],
     predProbs = np.max(modelPipe.predict_proba(xTest), axis = 1)
     auc = roc_auc_score(yTest, predictions)
     accuracy = accuracy_score(yTest, predictions)
+    rocCurve = roc_curve(yTest, predictions)
     
-    return modelPipe, predictions, predProbs, auc, accuracy
+    # return modelPipe, predictions, predProbs, auc, accuracy
+    return {'pipe' : modelPipe,
+            'predictions' : predictions,
+            'probabilities' : predProbs,
+            'xTrain' : xTrain, 'yTrain' : yTrain,
+            'xTest' : xTest, 'yTest' : yTest,
+            'rocCurve' : rocCurve,
+            'auc' : auc, 'accuracy' : accuracy}
 
 
 
@@ -1298,20 +1306,22 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     # Run grid search on modeling pipeline
     timer()
-    pipe, predictions, predProbs, auc, accuracy = modelAnalysisPipeline(modelPipe = pipe,
+    modelDict[df]['analysis'] = modelAnalysisPipeline(modelPipe = pipe,
                           data = dataDict[df + 'modelData'],
                           indCols = indCols2,
                           targetCol = 'winnerA',
                           testTrainSplit = 0.2,
                           gridSearch=True,
                           paramGrid=paramGrid)
-    modelDict['calcTime'] = timer()
+    modelDict[df]['calcTime'] = timer()
+    
+    
     
     
     
     
     # Plot Results
-    gridSearchResults = pd.DataFrame(pipe.cv_results_)
+    gridSearchResults = pd.DataFrame(modelDict[df]['analysis']['pipe'].cv_results_)
     gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], 
                                     gridSearchResults['param_mdl'].values.tolist())
     
@@ -1338,6 +1348,9 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                how = 'inner')
                                )
     mdlBests.rename(columns = {'mean_test_score':'max'}, inplace = True)
+
+    # Make sure there's only a single value for each model type
+    mdlBests = mdlBests.groupby('mdl').first()    
     
     modelDict[df]['bests'] = mdlBests
     modelDict[df]['gridResults'] = gridSearchResults
@@ -1381,7 +1394,20 @@ del(mdlBests, gridSearchResults, gsPlotCols)
 plt.figure()
 sns.lmplot(x = 'param_fReduce__n_components', 
            y = 'mean_test_score', 
-           data=gridSearchResults)
+           data=modelDict['tGamesC']['gridResults'])
+           
+ 
+plt.figure()
+
+sns.factorplot(x = 'param_fReduce__n_components', 
+           y = 'mean_test_score', 
+           hue = 'mdl',
+           data=modelDict['tGamesD']['gridResults'])
+   
+
+plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
+            modelDict['tGamesC']['gridResults']['mean_test_score'])       
+           modelDict['tGamesC'].keys()
 
 
 
