@@ -304,7 +304,7 @@ def modelAnalysisPipeline(modelPipe, data = [],
     predProbs = np.max(modelPipe.predict_proba(xTest), axis = 1)
     auc = roc_auc_score(yTest, predictions)
     accuracy = accuracy_score(yTest, predictions)
-    rocCurve = roc_curve(yTest, predictions)
+    rocCurve = roc_curve(yTest, modelPipe.predict_proba(xTest)[:,1])
     
     # return modelPipe, predictions, predProbs, auc, accuracy
     return {'pipe' : modelPipe,
@@ -1388,6 +1388,13 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
         
 
+
+y = roc_curve(modelDict['tGamesC']['analysis']['yTest'],
+              modelDict['tGamesC']['analysis']['predictions'])
+              
+              modelDict['tGamesC']['analysis']['probabilities'].shape
+
+modelDict['tGamesC']['analysis'].keys()
 
 del(mdlBests, gridSearchResults, gsPlotCols)
 
