@@ -1388,6 +1388,8 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                               top = 'off', bottom = 'off', 
                               labelbottom = 'off')
     
+del(mdlBests, gridSearchResults, gsPlotCols)
+
 
 #==============================================================================
 # ROC CURVES 
@@ -1404,17 +1406,27 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                               .predict_proba(modelDict[df]['analysis']['xTest'])[:,1])),
                     modelDict[df]['bests']['params'].values.tolist())
 
+
+    rocAucs = map(lambda params: roc_auc_score(modelDict[df]['analysis']['yTest'],
+                                          (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+                                              .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
+                                              .predict(modelDict[df]['analysis']['xTest']))),
+                    modelDict[df]['bests']['params'].values.tolist())
+
+
+
     cMap = cm.get_cmap('jet')
 
     fig, ax = plt.subplots(1)
     
     for i, curve in enumerate(zip(rocCurves, 
-                                       modelDict[df]['bests'].index.values.tolist())):
+                                  modelDict[df]['bests'].index.values.tolist(),
+                                    rocAucs)):
         ax.plot(curve[0][0], 
                 curve[0][1], 
                 c = cMap(256*i//(len(rocCurves) - 1))[:3], 
                 linewidth = 8,
-                label = curve[1])
+                label = '{} {:0.2f}'.format(curve[1], curve[2]))
       
     ax.plot([0,1],[0,1], '--k', linewidth = 4, label = 'random')      
       
@@ -1427,7 +1439,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
 
 
 
-del(mdlBests, gridSearchResults, gsPlotCols)
+
 
 plt.figure()
 sns.lmplot(x = 'param_fReduce__n_components', 
@@ -1455,50 +1467,7 @@ plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
 
 
 
-mdlDict = {'dTree' : {'model' : DecisionTreeClassifier(random_state = 1127),
-                      'gridParams' : {'min_samples_split' : np.arange(.05, .21, .05),
-                                      'min_samples_leaf' : xrange(2, 10, 4)
-                                     }
-                     },
-                                      
-           'rForest' : {'model' : RandomForestClassifier(random_state = 1127,
-                                                         n_estimators = 100,
-                                                         n_jobs = -1,
-                                                         verbose = 0),
-                        'gridParams' : {'min_samples_split' : np.arange(.05, .21, .05),
-                                        'min_samples_leaf' : xrange(2, 10, 4),
-                                        }
-                        },
-                                        
-            'logR' : {'model': LogisticRegression(random_state = 1127),
-                      'gridParams' : {'C': map(lambda i: 10**i, xrange(-1,3))}
-                      },
-            'knn' : {'model': KNeighborsClassifier(),
-                     'gridParams' : {'n_neighbors' : xrange(3, 9, 2)}
-                     },
-            'nb' : {'model': GaussianNB(),
-                    'gridParams' : {}
-                     },
-            'svc' : {'model': SVC(probability = True),
-                     'gridParams' : {'C': map(lambda i: 10**i, xrange(-1,3)),
-                                     'gamma' : map(lambda i: 10**i, xrange(-3,1))}
-                     }
-            }
 
-
-
-
-
-
-
-
-
-
-
-
-help(PCA)
-
-help(LogisticRegression)
 
 #==============================================================================
 #==============================================================================
@@ -2313,12 +2282,10 @@ def tourneyPredictions(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
     
     if 'Season' in tSeeds.columns.tolist():
         tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
-        #tSeeds = tSeeds.drop('Season', inplace = True, axis = 1)
     else: tSeeds = tSeeds[['Seed', 'TeamID']]
     
     if 'Season' in tSlots.columns.tolist():
         tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
-        #tSlots = tSlots.drop('Season', inplace = True, axis = 1)
     else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
     
     if 'Season' in teamDF.columns.tolist():
@@ -2409,135 +2376,4 @@ tPredictClean.to_csv(fName + '.csv', index = False, header = True)
 
 
 
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-# # # # # # DEV
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-
-
-
-
-
-#==============================================================================
-# def buildModelDataFold(df):
-#     '''Randomnly split games data frames in half and swap columns for creating
-#     model datasets.
-#         
-#     Return dataframe of same shape with plus winnerA boolean column.'''
-# 
-#     colNames = dataDict[df].columns.tolist()
-#     wCols = filter(lambda col: (len(re.findall('^W.*', col))>0) & (col != 'WLoc'), colNames)
-#     lCols = filter(lambda col: len(re.findall('^L.*', col))>0, colNames)
-#     baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
-#     deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', c)) > 0) | (col == 'scoreGap'), colNames)
-#     
-#     aCols = map(lambda col: 'A' + col[1:], wCols)    
-#     bCols = map(lambda col: 'B' + col[1:], wCols)    
-#     
-#     #a, b = train_test_split(dataDict[df], test_size = 0.5, random_state = 1127)
-#     
-#     # Reorder dataframes (flip winners and losers for b)
-#     a = dataDict[df][baseCols + wCols + lCols]
-#     b = dataDict[df][baseCols + lCols + wCols]
-#     
-#     # Assign classifaction for if Team A wins    
-#     a['winnerA'] = 1
-#     b['winnerA'] = 0
-# 
-#     # Inverse deltas for b since order is reversed
-#    
-#     b[deltaCols] = b[deltaCols].applymap(lambda x: x * (-1.0))
-#     
-#     # Rename columns and stack dataframes
-#     a.columns = baseCols + aCols + bCols + ['winnerA']
-#     b.columns = baseCols + aCols + bCols + ['winnerA']
-#     
-#     mdlData = pd.concat([a,b], axis = 0)
-#     
-#     mdlData.index = range(len(mdlData))
-# 
-#     return mdlData
-#==============================================================================
-
-
-
-
-
-
-
-
-
-#==============================================================================
-# for dfs in zip(trainDataList, modelDataList):
-# 
-#     dfTr, df = dfs[0], dfs[1]    
-#     
-#     mdlCols = filter(lambda col: col not in mdlExcludeCols, dataDict[df].columns.tolist())
-# 
-# 
-# 
-#     xTrain, yTrain = dataDict[dfTr][mdlCols], dataDict[dfTr]['winnerA']
-#     xTest, yTest = dataDict[df][mdlCols], dataDict[df]['winnerA']
-# 
-# 
-#     gridSearch = False                              
-#     for mdl in mdlDict.iterkeys():
-#         mdlDict[mdl][df]={} 
-#         
-#         if gridSearch == True:
-#             mdlDict[mdl][df]['model'] = GridSearchCV(estimator = mdlDict[mdl]['model'],
-#                                                      param_grid = mdlDict[mdl]['gridParams'],
-#                                                      refit = True,
-#                                                      verbose = 2)
-#         
-#         else: mdlDict[mdl][df]['model'] = mdlDict[mdl]['model']
-#             
-#         (mdlDict[mdl][df]['predictions'],
-#          mdlDict[mdl][df]['predictProbas'],
-#          mdlDict[mdl][df]['auc'],
-#          mdlDict[mdl][df]['accuracy']) = modelAnalysis(model = mdlDict[mdl][df]['model'],
-#                                                        testTrainDataList=[xTrain, xTest, yTrain, yTest]) 
-#              
-#         mdlSum.append((df, mdl, mdlDict[mdl][df]['auc'], mdlDict[mdl][df]['accuracy'], timer(), 'regSeasonTrain'))
-# 
-#==============================================================================
-
-
-
-
-
-
-
-
-
-#==============================================================================
-# 
-# 
-# sns.heatmap(dataDict['tGamesD'][winnerColumns + loserColumns].corr(),cmap='coolwarm')
-# 
-# for col in winnerColumns + loserColumns:
-#     sns.jointplot(x = col, y = 'scoreGap', data = dataDict['tGamesD'])
-# 
-# sns.pairplot(dataDict['tGamesD'], 
-#              hue = 'Season', 
-#              palette='rainbow', 
-#              x_vars = loserColumns, 
-#              y_vars = winnerColumns)
-#              
-#==============================================================================
-             
-dataDict['tGamesD'].head()
-
-
-'abc'.startswith('L')
-               
         
