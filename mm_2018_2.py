@@ -19,6 +19,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import Colormap
 import seaborn as sns
 import os
 import re
@@ -1386,15 +1388,44 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                               top = 'off', bottom = 'off', 
                               labelbottom = 'off')
     
-        
+
+#==============================================================================
+# ROC CURVES 
+#==============================================================================
 
 
-y = roc_curve(modelDict['tGamesC']['analysis']['yTest'],
-              modelDict['tGamesC']['analysis']['predictions'])
-              
-              modelDict['tGamesC']['analysis']['probabilities'].shape
+# Plot roc curve for best params for each model type
+for df in filter(lambda g: g.startswith('t'), gamesData):       
 
-modelDict['tGamesC']['analysis'].keys()
+    # Refit pipleiine with model parameters and calculate prediciton probabilities
+    rocCurves = map(lambda params: roc_curve(modelDict[df]['analysis']['yTest'],
+                                          (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+                                              .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
+                                              .predict_proba(modelDict[df]['analysis']['xTest'])[:,1])),
+                    modelDict[df]['bests']['params'].values.tolist())
+
+    cMap = cm.get_cmap('jet')
+
+    fig, ax = plt.subplots(1)
+    
+    for i, curve in enumerate(zip(rocCurves, 
+                                       modelDict[df]['bests'].index.values.tolist())):
+        ax.plot(curve[0][0], 
+                curve[0][1], 
+                c = cMap(256*i//(len(rocCurves) - 1))[:3], 
+                linewidth = 8,
+                label = curve[1])
+      
+    ax.plot([0,1],[0,1], '--k', linewidth = 4, label = 'random')      
+      
+    plt.grid()
+    plt.legend()
+    ax.set_xlabel('fpr', fontsize = 24)
+    ax.set_ylabel('tpr', fontsize = 24)
+    ax.set_title('ROC Curve for ' + df, fontsize = 36)
+    ax.tick_params(labelsize = 24)
+
+
 
 del(mdlBests, gridSearchResults, gsPlotCols)
 
