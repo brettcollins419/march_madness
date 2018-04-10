@@ -564,6 +564,92 @@ def generateGameMatchupStats2(gameDF, teamDF,
 
     return gameDF
 
+
+def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
+    
+    if 'Season' in tSeeds.columns.tolist():
+        tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
+    else: tSeeds = tSeeds[['Seed', 'TeamID']]
+    
+    if 'Season' in tSlots.columns.tolist():
+        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
+    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
+    
+    if 'Season' in teamDF.columns.tolist():
+        teamDF = teamDF[teamDF['Season'] == yr]
+        teamDF.drop('Season', inplace = True, axis = 1)
+
+    seedDict = dict(tSeeds.values.tolist())
+    resultProbDict = {}
+    
+    tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
+    
+    
+    # Loop through rounds making predictions
+    while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
+        
+        # Match seeds to slot for matchups
+        for seed in ['Strong', 'Weak']:
+            tSlots[seed + 'Team'] = tSlots[seed + 'Seed'].map(lambda t: seedDict.get(t, 'x'))
+        
+        # Need to error handle for all numeric indexes (last round)    
+        slotMatchUps = tSlots[((tSlots['StrongTeam'].map(str) != 'x')
+                                 & (tSlots['WeakTeam'].map(str) != 'x')
+                                 & (tSlots['winProb'] == 0))][['Slot', 'StrongTeam', 'WeakTeam']]
+        
+        
+        # Generate matchup data for modeling
+        slotMatchUps2 = generateGameMatchupStats(gameDF = slotMatchUps, 
+                                                 teamDF = teamDF, 
+                                                teamID1='StrongTeam', 
+                                                teamID2 = 'WeakTeam',
+                                                label1 = 'A',
+                                                label2 = 'B',
+                                                extraMergeFields=[],
+                                                createMatchupFields=True,
+                                                deltaFields=['seedRank', 'OrdinalRank'], 
+                                                matchupFields=[('confMatchup', 'ConfAbbrev'), 
+                                                               ('seedRankMatchup', 'seedRank')])
+        # Predict winner and winning probability
+        slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
+        slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
+        
+        # Assign TeamID to roundWinner (1 = StrongSeed/Team, 0 = WeakTeam/Seed)
+        slotMatchUps['rndWinner'] = slotMatchUps.apply(lambda game: game['StrongTeam'] if game['rndWinner'] == 1 else game['WeakTeam'], 
+                                                        axis = 1)
+        
+        # Convert results to dictionary and update base dictionaries with new results
+        winnerDict = slotMatchUps.set_index('Slot').to_dict()
+        seedDict.update(winnerDict['rndWinner'])
+        resultProbDict.update(winnerDict['winProb'])
+        
+        
+        # Update tSlots dataframe with winner results
+        for team in [('rndWinner', 'Slot'), ('StrongTeam', 'StrongSeed'), ('WeakTeam', 'WeakSeed')]:
+            tSlots[team[0]] = tSlots[team[1]].map(lambda result: seedDict.get(result, 'x'))
+        tSlots['winProb'] = tSlots['Slot'].map(lambda result: resultProbDict.get(result, 0))
+        
+        
+    # Map team name and original seed to results
+    for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
+        tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
+                              left_on = team, right_index = True)
+        tSlots.rename(columns = {'TeamName' : team + 'Name'}, inplace = True)
+                    
+        tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
+                              left_on = team, right_index = True)
+    
+        tSlots.rename(columns = {'Seed' : team + 'Seed'}, inplace = True)
+    
+    # Order & clean results 
+    tSlots = tSlots.sort_values('Slot')
+    tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
+                          'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
+                          'winProb']]
+
+    return tSlots, tSlotsClean
+
+
 #==============================================================================
 # END FUNCTIONS
 #==============================================================================
@@ -903,6 +989,45 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 # gamesDataR.sort()
 #==============================================================================
 
+
+####### Finish function
+def genGameMatchupswSeedStats(baseCols, 
+                              gameDF, teamDF, 
+                              teamID1, teamID2, 
+                              label1 = 'A', label2 = 'B',
+                              extraMergeFields = ['Season'],
+                              calculateDeltas = True,
+                              returnStatCols = True,
+                              deltaExcludeFields = [],
+                              createMatchupFields = True,
+                              matchupFields = [('confMatchup', 'ConfAbbrev'), 
+                                               ('seedRankMatchup', 'seedRank')]):
+                                                   
+
+    teamStats = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
+                                          teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                          teamID1 = 'WTeamID', teamID2 = 'LTeamID',
+                                          label1 = 'W', label2 = 'L')
+
+
+    seedStats = generateGameMatchupStats2(gameDF = teamStats[baseCols + ['WseedRank', 'LseedRank']],
+                                          teamDF = dataDict[df + 'SeedStats'],
+                                          teamID1 = 'WseedRank', teamID2 = 'LseedRank',
+                                          extraMergeFields=[],
+                                          createMatchupFields=False,
+                                          label1 = 'WSeed', label2 = 'LSeed')
+         
+
+    matchUps = teamStats.merge(seedStats.drop(['WseedRank', 'LseedRank'], axis = 1), 
+                                                          left_on = baseCols, 
+                                                          right_on = baseCols)  
+
+    return matchUps
+    
+    
+########### Finish Function    
+    
+
 baseCols = ['Season', 'DayNum', 'WTeamID', 'LTeamID'] 
 baseColsM = ['Season', 'DayNum', 'ATeamID', 'BTeamID']
 for df in filter(lambda g: g.startswith('t'), gamesData):
@@ -950,81 +1075,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     del(teamStats, teamStatsM, seedStats, seedStatsM)
     
     
-    
-    
-####################################
-#==============================================================================
-# 
-# for df, dfM in zip(gamesDataT, map(lambda n: n + 'TeamSeasonStats', gamesDataR)):
-# 
-#     # Base dataframe for merging
-#     dataDict[df + 'SeasonStatsMatchup'] = dataDict[df][colsBase + ['WTeamID', 'LTeamID']]
-#     
-#     for t in ('W', 'L'):
-#         # Rename columns before merging
-#         renameDict = dict(zip(dataDict[dfM].columns.tolist(),
-#                           map(lambda n: t + n, dataDict[dfM].columns.tolist())))
-#             
-#         
-#         # Merge DataFrames
-#         dataDict[df + 'SeasonStatsMatchup'] = dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[dfM].rename(columns = renameDict),
-#                                                                                         how = 'left',
-#                                                                                         left_on = ['Season', t + 'TeamID'], 
-#                                                                                         right_index = True)
-# 
-#  
-#         # ADD OVERALL SEED AVERAGE METRICS TO TOURNAMENT DATA                                                                                       
-#         if df.startswith('t'):
-# 
-#             # Relabel Seed data
-#             seedNameDict = dict(zip(dataDict[df + 'SeedStats'].columns.tolist(),
-#                                     map(lambda n: t + 'Seed' + n, 
-#                                         dataDict[df + 'SeedStats'].columns.tolist())))
-#             
-#             dataDict[df + 'SeasonStatsMatchup'] = (
-#                 dataDict[df + 'SeasonStatsMatchup'].merge(dataDict[df + 'SeedStats'].rename(columns = seedNameDict),
-#                                                           left_on = t + 'seedRank', 
-#                                                           right_index = True)
-#                                                 )
-# 
-#      # Calculate matchup pairs
-#     for matchup in [('confMatchup', 'ConfAbbrev'), ('seedRankMatchup', 'seedRank')]:
-#         dataDict[df + 'SeasonStatsMatchup'][matchup[0]] = generateMatchupField(df = dataDict[df + 'SeasonStatsMatchup'], 
-#                                                                                matchupName = matchup[1], 
-#                                                                                 label1 = 'W', 
-#                                                                                 label2 = 'L')
-# 
-#     # Cacluate column stats
-#     colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
-# 
-#==============================================================================
-
-#==============================================================================
-#     # Generate new dataframe with deltas between winning and losing teams
-#     numericCols =  colSumDict[df + 'SeasonStatsMatchup'][~colSumDict[df + 'SeasonStatsMatchup']['isObject']]['colName'].values.tolist()  
-#     colsWinTemp = filter(lambda c: colsWinFilter(c) & (c != 'WTeamID'),
-#                   numericCols)
-#     colsLossTemp = filter(lambda c: colsLossFilter(c) & (c != 'LTeamID'), 
-#                    numericCols)
-# 
-#     # Base columns (all other columns)
-#     colsBaseTemp = filter(lambda c: c not in colsWinTemp + colsLossTemp, 
-#                           dataDict[df + 'SeasonStatsMatchup'].columns.tolist())    
-#     
-#     
-#     # Merge delta calculations with base dataframe
-#     
-#     dataDict[df + 'SeasonStatsMatchupDeltas'] = pd.concat(
-#                                                     [dataDict[df + 'SeasonStatsMatchup'][colsBaseTemp],
-#                                                      pd.DataFrame(zip(*[(dataDict[df + 'SeasonStatsMatchup'][colWin] 
-#                                                                          - dataDict[df + 'SeasonStatsMatchup'][colLoss]) 
-#                                                                          for colWin, colLoss in zip(colsWinTemp, colsLossTemp)]),
-#                                            columns = map(lambda colName: colName[1:] + 'Delta',
-#                                                          colsWinTemp))],
-#                                                          axis = 1)
-# 
-# 
-#==============================================================================
+   
     dataDict[df + 'SeasonStatsMatchupDeltas'] = generateMatchupDeltas(dataDict[df + 'SeasonStatsMatchup'], label1='W', label2='L')
 
     colSumDict[df + 'SeasonStatsMatchupDeltas'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchupDeltas'], returnDF=True)
@@ -1156,6 +1207,8 @@ for df in teamStatsDFs:
                       fontsize = labelFontSize)
     axs[1].tick_params(labelsize = tickFontSize)
     axs[1].grid()
+
+
 
 
 ### PCA Analysis on matchup dataframes
