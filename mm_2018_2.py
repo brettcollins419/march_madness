@@ -992,7 +992,7 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 
 ####### Finish function
 def genGameMatchupswSeedStats(baseCols, 
-                              gameDF, teamDF, 
+                              gameDF, teamDF, seedDF,
                               teamID1, teamID2, 
                               label1 = 'A', label2 = 'B',
                               extraMergeFields = ['Season'],
@@ -1004,23 +1004,27 @@ def genGameMatchupswSeedStats(baseCols,
                                                ('seedRankMatchup', 'seedRank')]):
                                                    
 
-    teamStats = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
-                                          teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                          teamID1 = 'WTeamID', teamID2 = 'LTeamID',
-                                          label1 = 'W', label2 = 'L')
+    teamStats = generateGameMatchupStats2(gameDF = gameDF[baseCols],
+                                          teamDF = teamDF,
+                                          teamID1 = teamID1, teamID2 = teamID2,
+                                          label1 = label1, label2 = label2)
 
 
-    seedStats = generateGameMatchupStats2(gameDF = teamStats[baseCols + ['WseedRank', 'LseedRank']],
-                                          teamDF = dataDict[df + 'SeedStats'],
-                                          teamID1 = 'WseedRank', teamID2 = 'LseedRank',
+    seedStats = generateGameMatchupStats2(gameDF = teamStats[baseCols + [label1 + 'seedRank', label2 + 'seedRank']],
+                                          teamDF = seedDF,
+                                          teamID1 = label1 + 'seedRank', 
+                                          teamID2 = label2 + 'seedRank',
                                           extraMergeFields=[],
                                           createMatchupFields=False,
-                                          label1 = 'WSeed', label2 = 'LSeed')
+                                          label1 = label1 + 'Seed', 
+                                          label2 = label2 + 'Seed')
          
 
-    matchUps = teamStats.merge(seedStats.drop(['WseedRank', 'LseedRank'], axis = 1), 
-                                                          left_on = baseCols, 
-                                                          right_on = baseCols)  
+    matchUps = teamStats.merge(seedStats.drop([label1 + 'seedRank', 
+                                               label2 + 'seedRank'], 
+                                               axis = 1), 
+                               left_on = baseCols, 
+                               right_on = baseCols)  
 
     return matchUps
     
@@ -1033,6 +1037,17 @@ baseColsM = ['Season', 'DayNum', 'ATeamID', 'BTeamID']
 for df in filter(lambda g: g.startswith('t'), gamesData):
    
     regDF = 'r' + df[1:]    
+
+    dataDict[df + 'SeasonStatsMatchup2'] = genGameMatchupswSeedStats(baseCols = baseCols,
+                                                                      gameDF = dataDict[df][baseCols],
+                                                                      teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                                                      seedDF = dataDict[df + 'SeedStats'],
+                                                                      teamID1 = 'WTeamID', 
+                                                                      teamID2 = 'LTeamID',
+                                                                      label1 = 'W', 
+                                                                      label2 = 'L')
+                                                                      
+                                                                      
 
     teamStats = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
                                           teamDF = dataDict[regDF + 'TeamSeasonStats'],
@@ -1081,7 +1096,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     colSumDict[df + 'SeasonStatsMatchupDeltas'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchupDeltas'], returnDF=True)
 
 
-del(renameDict, seedNameDict, colsLossTemp, colsWinTemp, numericCols)
+#del(seedNameDict, colsLossTemp, colsWinTemp, numericCols)
 
 # Add matchup columns to colsBase
 colsBase += ['confMatchup', 'seedRankMatchup']
