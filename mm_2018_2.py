@@ -96,12 +96,20 @@ def generateDataFrameColumnSummaries(df, returnDF = False):
 
 
 
-
 def buildModelData2(gameDF, teamDF, 
+                    indexCols = [],
+                    label1 = 'A', label2 = 'B',
+                    labelName = 'TeamID',
+                    extraMergeFields = ['Season'],
                     calculateMatchupStats = True,
                     calculateDeltas = True,
-                    createMatchupFields = True
-                    ):
+                    createMatchupFields = True,
+                    returnStatCols = True,
+                    deltaExcludeFields = [],
+                    matchupFields = [('confMatchup', 'ConfAbbrev'), 
+                                     ('seedRankMatchup', 'seedRank')]):
+                                         
+                                         
     '''Randomnly split games data frames in half and swap columns for creating
     model datasets.  gameDF data should be base columns only 
     with shared stats and TeamIDs.  After splitting and swapping 50% of the records
@@ -131,66 +139,20 @@ def buildModelData2(gameDF, teamDF,
     
     # Calculate matchup statistics if true
     if calculateMatchupStats == True:
-        mdlData = generateGameMatchupStats2(mdlData, teamDF,
+        mdlData = generateGameMatchupStats2(mdlData, teamDF, 
+                                            indexCols,
                                             teamID1 = 'ATeamID', teamID2 = 'BTeamID',
-                                            label1 = 'A', label2 = 'B',
+                                            labelName = labelName,
+                                            extraMergeFields = extraMergeFields,
+                                            label1 = label1, label2 = label2,
                                             calculateDeltas = calculateDeltas,
-                                            createMatchupFields = createMatchupFields)
+                                            returnStatCols = returnStartCols,
+                                            createMatchupFields = createMatchupFields,
+                                            deltaExcludeFields = deltaExcludeFields,
+                                            matchupFields = matchupFields)
 
     
     return mdlData
-
-
-
-def buildModelData(df):
-    '''Randomnly split games data frames in half and swap columns for creating
-    model datasets.
-        
-    Return dataframe of same shape with plus winnerA boolean column.'''
-
-    #filter only numeric columns
-    colNames = df.columns.tolist()
-    #colNames = filter(lambda c: df[c].dtype.hasobject == False, colNames)   
-    
-    wCols = filter(lambda col: colsTeamFilter(col, 'W') & (col != 'WLoc'), 
-                   colNames)
-    lCols = filter(lambda col: colsTeamFilter(col, 'L'), 
-                   colNames)
- 
-
-
-   
-    baseCols = filter(lambda col: (len(re.findall('^[^L^W].*', col))>0) | (col == 'WLoc'), colNames)
-    deltaCols = filter(lambda col: (len(re.findall('.*Delta.*', col)) > 0) | (col == 'scoreGap'), colNames)
-
-    # Rename columns
-    aCols = map(lambda col: 'A' + col[1:], wCols)    
-    bCols = map(lambda col: 'B' + col[1:], wCols)    
-    
-    # Split data
-    a, b = train_test_split(df, test_size = 0.5, random_state = 1127)
-    
-    # Reorder dataframes (flip winners and losers for b)
-    a = a[baseCols + wCols + lCols]
-    b = b[baseCols + lCols + wCols]
-    
-    # Assign classifaction for if Team A wins    
-    a['winnerA'] = 1
-    b['winnerA'] = 0
-
-    # Inverse deltas for b since order is reversed 
-    b[deltaCols] = b[deltaCols].applymap(lambda x: x * (-1.0))
-    
-    # Rename columns and stack dataframes
-    a.columns = baseCols + aCols + bCols + ['winnerA']
-    b.columns = baseCols + aCols + bCols + ['winnerA']
-    
-    mdlData = pd.concat([a,b], axis = 0)
-
-    return mdlData
-
-
-
 
 
 def generateMatchupField(df, matchupName, label1, label2):
@@ -204,44 +166,6 @@ def generateMatchupField(df, matchupName, label1, label2):
     matchup = map(lambda l: tuple(l), matchup)
     
     return matchup
-
-
-
-def generateGameMatchupStats(gameDF, teamDF, 
-                             teamID1, teamID2, 
-                             label1 = 'A', label2 = 'B',
-                             extraMergeFields = ['Season'],
-                             deltaFields = ['seedRank', 'OrdinalRank'],
-                             createMatchupFields = True,
-                             matchupFields = [('confMatchup', 'ConfAbbrev'), 
-                                              ('seedRankMatchup', 'seedRank')]):
-    
-    '''Create a new dataframe with team matchup statistics based on two
-        teamIDs. 
-        
-        TeamDF should have index set to mergeFields.'''
-    
-    for x in [(teamID1, label1), (teamID2, label2)]:
-        teamID, teamLabel = x[0], x[1]        
-        mergeFields = extraMergeFields + [teamID]
-        gameDFcols = gameDF.columns.tolist()
-        
-        # Add label to teamDF columns to match TeamID label        
-        teamDFcols = map(lambda label: teamLabel + label, teamDF.columns.tolist())
-        
-        gameDF = gameDF.merge(teamDF, left_on = mergeFields, right_index = True)
-        gameDF.columns = gameDFcols + teamDFcols
-        
-    if createMatchupFields == True:
-        
-        for field in matchupFields:        
-            gameDF[field[0]] = generateMatchupField(gameDF, field[1], label1, label2)
-    
-    if len(deltaFields)>0:
-        for field in deltaFields:
-            gameDF[field + 'Delta'] = gameDF[label1 + field] - gameDF[label2 + field]
-            
-    return gameDF
 
 
 
@@ -465,7 +389,7 @@ def colsTeamFilter(col, teamLabel):
 
 
 
-def generateMatchupDeltas(df, label1, label2, excludeCols = []):
+def generateMatchupDeltas(df, label1, label2, labelName = 'TeamID', excludeCols = []):
     '''Calculate deltas bewtween matching metric columns
     
         Return dataframe of delta metrics with column labels as same
@@ -478,7 +402,7 @@ def generateMatchupDeltas(df, label1, label2, excludeCols = []):
         excludeCols = list(excludeCols)
     
     # Add teamID fields to exclusion list
-    excludeCols += [label1 + 'TeamID', label2 + 'TeamID']    
+    excludeCols += [label1 + labelName, label2 + labelName]    
     
     # Find all numeric columns
     objectCols = filter(lambda c: df[c].dtype.hasobject, dfCols)
@@ -507,18 +431,23 @@ def generateMatchupDeltas(df, label1, label2, excludeCols = []):
     
     
     # Create dataframe of metric deltas (label1 - label2)
-    deltaDF = pd.DataFrame(zip(*[(df[l1Col] - df[l2Col]) 
-                            for l1Col, l2Col in zip(label1Cols, label2Cols)]),
-                            columns = map(lambda colName: colName[1:] + 'Delta', 
-                                          label1Cols))
+    l1DF = df[label1Cols]
+    l2DF = df[label2Cols]
+
+    l2DF.columns = label1Cols
+
+    deltaDF = l1DF - l2DF    
+    deltaDF.columns = map(lambda colName: colName[1:] + 'Delta', label1Cols)
 
     return deltaDF
 
 
 
-def generateGameMatchupStats2(gameDF, teamDF, 
+def generateGameMatchupStats2(gameDF, teamDF,
+                              indexCols,
                              teamID1, teamID2, 
                              label1 = 'A', label2 = 'B',
+                             labelName = 'TeamID',
                              extraMergeFields = ['Season'],
                              calculateDeltas = True,
                              returnStatCols = True,
@@ -544,17 +473,21 @@ def generateGameMatchupStats2(gameDF, teamDF,
         gameDF.columns = gameDFcols + teamDFcols
         
 
+    # Set index for merging
+    gameDF.set_index(indexCols, inplace = True)
+
     if calculateDeltas == True:
         dfDelta = generateMatchupDeltas(gameDF, 
                                         label1 = label1, 
                                         label2 = label2,
-                                        excludeCols = deltaExcludeFields + [label1 + 'TeamID',
-                                                                            label2 + 'TeamID'])
+                                        labelName = labelName,
+                                        excludeCols = deltaExcludeFields + [label1 + labelName,
+                                                                            label2 + labelName])
         
-        if returnStatCols == True: 
-            gameDF = gameDF.merge(dfDelta, left_index = True, right_index = True)     
-         
-        else: gameDF = dfDelta
+        dfDeltaCols = dfDelta.columns.tolist()     
+
+        gameDF = gameDF.merge(dfDelta, left_index = True, right_index = True)     
+
           
           
     if createMatchupFields == True:
@@ -562,7 +495,101 @@ def generateGameMatchupStats2(gameDF, teamDF,
             gameDF[field[0]] = generateMatchupField(gameDF, field[1], label1, label2)
               
 
+    if returnStatCols == False:
+        if len(matchupFields) > 0:
+            matchupLabels = list(zip(*matchupFields)[0])
+        else: matchupLabels = []
+        
+        gameDF = gameDF[dfDeltaCols + matchupLabels]
+
     return gameDF
+
+
+
+def genGameMatchupswSeedStats(baseCols, 
+                              gameDF, teamDF, seedDF,
+                              teamID1, teamID2, 
+                              label1 = 'A', label2 = 'B',
+                              extraMergeFields = ['Season'],
+                              calculateDeltas = True,
+                              returnStatCols = True,
+                              deltaExcludeFields = [],
+                              createMatchupFields = True,
+                              matchupFields = [('confMatchup', 'ConfAbbrev'), 
+                                               ('seedRankMatchup', 'seedRank')]):
+        
+    '''Call generateGameMatchupStats function for creating initial
+        matchup using team statistics, then add statistics for each
+        team based on their seed rank in the tournament.
+
+        Return DataFrame of matchups.'''                                           
+
+    # Create initial matchup dataframe
+    teamStats = generateGameMatchupStats2(gameDF = gameDF[baseCols],
+                                          indexCols = baseCols,
+                                          teamDF = teamDF,
+                                          teamID1 = teamID1, 
+                                          teamID2 = teamID2,
+                                          label1 = label1, 
+                                          label2 = label2,
+                                          labelName = 'TeamID',
+                                          extraMergeFields = extraMergeFields,
+                                          calculateDeltas = calculateDeltas,
+                                          returnStatCols = returnStatCols,
+                                          createMatchupFields = createMatchupFields,
+                                          matchupFields = matchupFields)
+
+
+    # More robust method for getting seedRank matchups incase returnStatCols = False
+    # Get seedRank for TeamID1        
+    seedStatsInput = gameDF[baseCols].merge(pd.DataFrame(teamDF['seedRank']),
+                                            how = 'left', 
+                                            left_on = ['Season', teamID1],
+                                            right_index = True)
+    
+    #seedStatsInput.reset_index(inplace = True)                                        
+    seedStatsInput.rename(columns = {'seedRank':label1 + 'seedRank'}, inplace = True)
+    
+ 
+     # Get seedRank for teamID2
+    seedStatsInput = seedStatsInput.merge(pd.DataFrame(teamDF['seedRank']),
+                                            how = 'left', 
+                                            left_on = ['Season', teamID2],
+                                            right_index = True)   
+
+    #seedStatsInput.reset_index(inplace = True) 
+    seedStatsInput.rename(columns = {'seedRank':label2 + 'seedRank'}, inplace = True)
+
+
+    # Create matchup dataframe based on seed ranks (lookup seed stats )
+    #seedLabels = [label1 + 'seedRank', label2 + 'seedRank']
+    seedStats = generateGameMatchupStats2(gameDF = seedStatsInput,
+                                          teamDF = seedDF,
+                                          indexCols = baseCols,
+                                          teamID1 = label1 + 'seedRank', 
+                                          teamID2 = label2 + 'seedRank',
+                                          labelName = 'seedRank',
+                                          extraMergeFields=[],
+                                          calculateDeltas = calculateDeltas,
+                                          returnStatCols = returnStatCols,
+                                          createMatchupFields=False,
+                                          matchupFields = [],
+                                          label1 = label1 + 'Seed', 
+                                          label2 = label2 + 'Seed')
+         
+         
+    # Merge results (drop seedRank label since already exists in base dataframe)
+    seedStatMergeCols = filter(lambda c: c.endswith('seedRank') == False, 
+                               seedStats.columns.tolist())         
+       
+    matchUps = teamStats.merge(seedStats[seedStatMergeCols], 
+                               left_index = True, 
+                               right_index = True)  
+
+    return matchUps
+    
+
+
 
 
 def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
@@ -665,7 +692,7 @@ if location.strip().lower() == 'home':
 else:
   # DSW setup
   dataFolder = '/home/cdsw/data/'
-  %matplotlib inline
+#  %matplotlib inline
 
         
 
@@ -680,18 +707,6 @@ dataFiles.sort()
 # Remove zip files
 dataFiles = filter(lambda f: '.csv' in f, dataFiles)
 
-
-
-#==============================================================================
-# rsGamesD = pd.read_csv(dataFolder + 'RegularSeasonDetailedResults.csv')
-# tGamesD = pd.read_csv(dataFolder + 'NCAATourneyDetailedResults.csv')
-# rsGamesD = pd.read_csv(dataFolder + 'RegularSeasonDetailedResults.csv')
-# tGamesD = pd.read_csv(dataFolder + 'NCAATourneyDetailedResults.csv')
-# conferences = pd.read_csv(dataFolder + 'Conferences.csv')
-# teamConf = pd.read_csv(dataFolder + 'TeamConferences.csv')
-# seasons =  pd.read_csv(dataFolder + 'Seasons.csv')
-# teams = pd.read_csv(dataFolder + 'Teams.csv') 
-#==============================================================================
 
 keyNames = map(lambda f: f[:-4], dataFiles)
 
@@ -726,11 +741,6 @@ dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFile
 
 # Lists of games data (C =C ompact, D = Detailed)
 gamesData = ['tGamesC', 'tGamesD', 'rGamesC', 'rGamesD']
-#==============================================================================
-# gamesDataC = ['tGamesC', 'rGamesC']
-# gamesDataD = ['tGamesD', 'rGamesD']
-# gamesDataT, gamesDataR = gamesData[:2], gamesData[2:]
-#==============================================================================
 
 
 #for df in ['rGamesC', 'rGamesD']:
@@ -780,15 +790,6 @@ for df in gamesData:
 # IDENTIFY COLUMN TYPES AND UPDATE COLUMN SUMMARIES WITH NEW COLUMNS
 #==============================================================================
 
-# Create list of unique columns in all games DataFrames
-#colSummary = [generateDataFrameColumnSummaries(dataDict[df]) for df in gamesData]
-
-#colSummary = pd.DataFrame(list(set(list(chain(*colSummary)))),
-#                          columns = ['colName', 'colDataType', 'isObject'])
-
-#colSummary = colSummary.sort_values(by = 'colName')
-
-
 # Generate dict
 colSumDict = {}  
   
@@ -806,7 +807,6 @@ for df in gamesData:
                                                     returnDF=True)
                                                     
                                                     
-
   # Label column types
   colsWin = filter(colsWinFilter,
                    dataDict[df].columns.tolist())
@@ -821,7 +821,7 @@ for df in gamesData:
       colSumDict[df][colName] = map(lambda c: c in colList,
                                     colSumDict[df]['colName'].values.tolist())
 
-
+del(colsWin, colsLoss, colName, colList)
 
 #==============================================================================
 # CALCULATE TEAM SUMMARIES FOR REGULAR SEASON & TOURNAMENT
@@ -832,10 +832,6 @@ for df in gamesData:
                   dataDict[df].columns.tolist())
     colsLossTemp = filter(colsLossFilter, 
                    dataDict[df].columns.tolist())
-
-    # Split wins and loss data (specific for each dataframe)
-    #colsWinTemp = filter(lambda c: c in colsWin, dataDict[df].columns.tolist())
-    #colsLossTemp = filter(lambda c: c in colsLoss, dataDict[df].columns.tolist())
     
     # Format base/shared columns between wins & loss data
     # Remove wLoc from colsBase (object, would need to parameterize for any value)
@@ -917,9 +913,6 @@ del(maxRankDate, rsRankings, dataDict['MasseyOrdinals'])
 
 
 
-
-
-
 #==============================================================================
 # MERGE CONFERENCES, SEEDS & RANKS TO TEAM SEASON 
 #==============================================================================
@@ -947,6 +940,8 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 
     dataDict[df].fillna(fillDict, inplace = True)
 
+
+
 #==============================================================================
 # CALCULATE SEED STATISTICS FOR TOURNAMENT
 #==============================================================================
@@ -967,11 +962,7 @@ for df in filter(lambda n: n.startswith('t'), gamesData):
 for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
     colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], returnDF=True)
                                      
-
-
-
-
-
+                                     
   
 #==============================================================================
 # CREATE NEW TOURNAMENT MATCHUPS USING TEAM SEASON STATISTICS
@@ -979,124 +970,55 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 # ADD TOURNAMENT SEED STATISTICS
 #
 # CALCULATE MATCHUP PAIRS FOR DUMMIES
+#  
+# CREATE MODEL DATASET WITH SAME COLUMN CALCULATIONS
 #==============================================================================
 
-# Align Complete and Detailed Datasets for compact and detailed datasets
-#==============================================================================
-# gamesDataT = filter(lambda g: g.startswith('t'), gamesData)
-# gamesDataR = filter(lambda g: g.startswith('r'), gamesData)
-# gamesDataT.sort()
-# gamesDataR.sort()
-#==============================================================================
-
-
-####### Finish function
-def genGameMatchupswSeedStats(baseCols, 
-                              gameDF, teamDF, seedDF,
-                              teamID1, teamID2, 
-                              label1 = 'A', label2 = 'B',
-                              extraMergeFields = ['Season'],
-                              calculateDeltas = True,
-                              returnStatCols = True,
-                              deltaExcludeFields = [],
-                              createMatchupFields = True,
-                              matchupFields = [('confMatchup', 'ConfAbbrev'), 
-                                               ('seedRankMatchup', 'seedRank')]):
-                                                   
-
-    teamStats = generateGameMatchupStats2(gameDF = gameDF[baseCols],
-                                          teamDF = teamDF,
-                                          teamID1 = teamID1, teamID2 = teamID2,
-                                          label1 = label1, label2 = label2)
-
-
-    seedStats = generateGameMatchupStats2(gameDF = teamStats[baseCols + [label1 + 'seedRank', label2 + 'seedRank']],
-                                          teamDF = seedDF,
-                                          teamID1 = label1 + 'seedRank', 
-                                          teamID2 = label2 + 'seedRank',
-                                          extraMergeFields=[],
-                                          createMatchupFields=False,
-                                          label1 = label1 + 'Seed', 
-                                          label2 = label2 + 'Seed')
-         
-
-    matchUps = teamStats.merge(seedStats.drop([label1 + 'seedRank', 
-                                               label2 + 'seedRank'], 
-                                               axis = 1), 
-                               left_on = baseCols, 
-                               right_on = baseCols)  
-
-    return matchUps
-    
-    
-########### Finish Function    
-    
-
-baseCols = ['Season', 'DayNum', 'WTeamID', 'LTeamID'] 
-baseColsM = ['Season', 'DayNum', 'ATeamID', 'BTeamID']
 for df in filter(lambda g: g.startswith('t'), gamesData):
    
+    # Reference assocated regular season data
     regDF = 'r' + df[1:]    
 
-    dataDict[df + 'SeasonStatsMatchup2'] = genGameMatchupswSeedStats(baseCols = baseCols,
-                                                                      gameDF = dataDict[df][baseCols],
-                                                                      teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                                                      seedDF = dataDict[df + 'SeedStats'],
-                                                                      teamID1 = 'WTeamID', 
-                                                                      teamID2 = 'LTeamID',
-                                                                      label1 = 'W', 
-                                                                      label2 = 'L')
-                                                                      
-                                                                      
-
-    teamStats = generateGameMatchupStats2(gameDF = dataDict[df][baseCols],
-                                          teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                          teamID1 = 'WTeamID', teamID2 = 'LTeamID',
-                                          label1 = 'W', label2 = 'L')
-
-
-    seedStats = generateGameMatchupStats2(gameDF = teamStats[baseCols + ['WseedRank', 'LseedRank']],
-                                          teamDF = dataDict[df + 'SeedStats'],
-                                          teamID1 = 'WseedRank', teamID2 = 'LseedRank',
-                                          extraMergeFields=[],
-                                          createMatchupFields=False,
-                                          label1 = 'WSeed', label2 = 'LSeed')
-         
-
-    dataDict[df + 'SeasonStatsMatchup'] = teamStats.merge(seedStats.drop(['WseedRank', 'LseedRank'], axis = 1), 
-                                                          left_on = baseCols, 
-                                                          right_on = baseCols)  
-
-            
-    teamStatsM = buildModelData2(gameDF = dataDict[df][baseCols],
-                                 teamDF = dataDict[regDF + 'TeamSeasonStats'])
-                                 
-    seedStatsM = generateGameMatchupStats2(gameDF = teamStatsM[baseColsM + ['AseedRank', 'BseedRank']],
-                                          teamDF = dataDict[df + 'SeedStats'],
-                                          teamID1 = 'AseedRank', teamID2 = 'BseedRank',
-                                          extraMergeFields=[],
-                                          createMatchupFields=False,
-                                          label1 = 'WSeed', label2 = 'LSeed')                           
-                   
-                   
-                   
-    dataDict[df + 'modelData'] = teamStatsM.merge(seedStatsM.drop(['AseedRank', 'BseedRank'], axis = 1), 
-                                                          left_on = baseColsM, 
-                                                          right_on = baseColsM) 
-
-    colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'], returnDF=True)
-    colSumDict[df + 'modelData'] = generateDataFrameColumnSummaries(dataDict[df + 'modelData'], returnDF=True)
-
-    del(teamStats, teamStatsM, seedStats, seedStatsM)
+    # Create tournament matchups
+    dataDict[df + 'SeasonStatsMatchup'] = genGameMatchupswSeedStats(baseCols = ['Season', 'DayNum', 'WTeamID', 'LTeamID'],
+                                                                    gameDF = dataDict[df],
+                                                                    teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                                                    seedDF = dataDict[df + 'SeedStats'],
+                                                                    teamID1 = 'WTeamID', 
+                                                                    teamID2 = 'LTeamID',
+                                                                    label1 = 'W', 
+                                                                    label2 = 'L',
+                                                                    calculateDeltas = True,
+                                                                    returnStatCols = True,
+                                                                    createMatchupFields = True)
     
+    # Build initial model dataset                                                                
+    dataDict[df + 'modelData'] = buildModelData2(gameDF = dataDict[df][['Season', 'DayNum', 'WTeamID', 'LTeamID']],
+                                                 teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                                 calculateMatchupStats = False
+                                                    )
+
+    # Create matchups from base model dataset
+    dataDict[df + 'modelData'] = genGameMatchupswSeedStats(baseCols = ['Season', 'DayNum', 'ATeamID', 'BTeamID', 'winnerA'],
+                                                           gameDF = dataDict[df + 'modelData'],
+                                                           teamDF = dataDict[regDF + 'TeamSeasonStats'],
+                                                           seedDF = dataDict[df + 'SeedStats'],
+                                                           teamID1 = 'ATeamID', 
+                                                           teamID2 = 'BTeamID',
+                                                           label1 = 'A', 
+                                                           label2 = 'B',
+                                                           calculateDeltas = True,
+                                                           returnStatCols = True,
+                                                           createMatchupFields = True)
     
-   
-    dataDict[df + 'SeasonStatsMatchupDeltas'] = generateMatchupDeltas(dataDict[df + 'SeasonStatsMatchup'], label1='W', label2='L')
+    # Pull out winnerA column from index
+    dataDict[df + 'modelData'].reset_index('winnerA', inplace = True)                    
 
-    colSumDict[df + 'SeasonStatsMatchupDeltas'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchupDeltas'], returnDF=True)
-
-
-#del(seedNameDict, colsLossTemp, colsWinTemp, numericCols)
+    # Calculate dataframe column details
+    colSumDict[df + 'SeasonStatsMatchup'] = generateDataFrameColumnSummaries(dataDict[df + 'SeasonStatsMatchup'],
+                                                                             returnDF = True)
+    colSumDict[df + 'modelData'] = generateDataFrameColumnSummaries(dataDict[df + 'modelData'],
+                                                                    returnDF = True)
 
 # Add matchup columns to colsBase
 colsBase += ['confMatchup', 'seedRankMatchup']
@@ -1120,18 +1042,48 @@ for df in ['rGamesCTeamSeasonStats', 'rGamesDTeamSeasonStats']:
 #   TeamIDs
 #   All object columns 
 
-corrExcludeCols = filter(lambda c: c != 'scoreGap', colsBase + ['WTeamID', 'LTeamID'])
+corrExcludeFilter = lambda c: (((c not in colsBase) | 
+                                (c in ('scoreGap', 'winnerA'))) 
+                                    & (c.endswith('TeamID') == False))
 
 
-for df in map(lambda n: n + 'SeasonStatsMatchup', filter(lambda d: d.startswith('t'), gamesData)):
-    corrColsTemp = filter(lambda c: c not in corrExcludeCols, dataDict[df].columns.tolist())    
+for df in map(lambda n: n + 'modelData', 
+              filter(lambda d: d.startswith('t'), gamesData)):
+    
+    corrColsTemp = filter(corrExcludeFilter, 
+                          dataDict[df].columns.tolist())    
+    
     dataDict[df + 'Corr'] = dataDict[df][corrColsTemp].corr()
     
     plotCorrHeatMap(dataDict[df + 'Corr'], 
                     plotTitle= df + ' Correlation Analysis')
 
 
+    x = pd.concat([dataDict[df + 'Corr']['winnerA'].rank(pct = True),
+                   dataDict[df + 'Corr']['winnerA']], axis = 1)
+      
+         
+    x.columns = ['rank', 'corr']
+    
+    x = x[x.index.values != 'winnerA']
 
+    x.sort_values('rank', inplace = True)  
+    
+    xScale = StandardScaler()
+    
+    x['scaled'] = xScale.fit_transform(x['corr'].values.reshape(-1,1))
+    
+    
+    
+    ax.plot(x['rank'], x['scaled'], lw = 10)
+    ax.tick_params(labelsize = 18)
+    ax.set_xlabel('Rank', fontsize = 24)
+    ax.set_ylabel('correlation', fontsize = 24)
+    
+    
+           
+
+del(corrColsTemp, x)
 
 
 #==============================================================================
@@ -1293,25 +1245,9 @@ for df in gamesStatsDFs:
 
 
 
-
-
-#==============================================================================
-# BUILD MODELING DATASETS
-#==============================================================================
-# Randomly split data and assign a win/loss column
-# Invert delta calculations for 50% that was flipped (loss observations)
-
-for df in gamesStatsDFs:
-    dataDict[df + 'Mdl'] = buildModelData(dataDict[df])
-
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
-# Filter independent columns for model input
-indCols = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
-                            & (dataDict[df + 'Mdl'][c].dtype.hasobject == False), 
-                dataDict[df + 'Mdl'].columns.tolist())
-
 
 modelDict = {}
 
@@ -1333,8 +1269,12 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                 SVC(random_state = 1127, probability = True)]
     
     # Configure parameter grid for pipeline
-    paramGrid = [{'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+    numIndCols = len(dataDict[df + 'modelData'][indCols2].columns)
+    numPCASplits = 4
+    
+    
+    paramGrid = [{'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+                    # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                     'mdl' : [DecisionTreeClassifier(random_state = 1127), 
                              RandomForestClassifier(random_state = 1127,
                                                              n_estimators = 100,
@@ -1345,21 +1285,21 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                     
                     },
                     
-                {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+                # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                     'mdl' : [LogisticRegression(random_state = 1127)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
                     },
                     
-                {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+                # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                     'mdl' : [SVC(probability = True)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
                     'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
                     },
                     
-                {'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns),
-                                                  len(dataDict[df + 'modelData'][indCols2].columns) // 4),
+                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+                 # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
                     'mdl' : [KNeighborsClassifier()],
                     'mdl__n_neighbors' : range(3, 10, 2)
                     
@@ -1456,7 +1396,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                               top = 'off', bottom = 'off', 
                               labelbottom = 'off')
     
-del(mdlBests, gridSearchResults, gsPlotCols)
+del(mdlBests, gridSearchResults, gsPlotCols, numIndCols, numPCASplits)
 
 
 #==============================================================================
@@ -1551,656 +1491,6 @@ plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
 #==============================================================================
 #==============================================================================
 
-
-dir
-
-dir(ax)
-
-
-help(pca)
-
-
-pcaDict = {}
-
-plt.figure()
-cMap = plt.cm.jet
-
-
-pcaList = ['allDDataTeamScaled', 'allDDataTTeamScaled', 
-           'allCDataTeamScaled', 'allCDataTTeamScaled']
-
-for i, df in enumerate(pcaList):
-    
-    pcaDict[df] = map(lambda n: pcaVarCheck(n, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
-                                                                 axis = 1)), 
-                      xrange(2, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
-                                                                 axis = 1).shape[1], 1))
-
-    plt.plot(xrange(2, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
-                                                                 axis = 1).shape[1], 1), 
-             zip(*pcaDict[df])[1], 
-             c = cMap(int(((i/(len(pcaList)-1))*256))), 
-             marker = 'o', label = df)
-    
-    plt.xlabel('# of Components', fontsize = 20)
-    plt.ylabel('% Vairance Explained', fontsize = 20)
-    plt.title('Principal Component Analysis', fontsize = 24)
-    
-    plt.legend(fontsize = 20)
-    plt.grid(True)
-    plt.xticks(fontsize = 20)
-    plt.yticks(fontsize = 20)
-
-
-#==============================================================================
-# CORRELATION ANALYSIS
-#==============================================================================
-  
-dataDColumns = dataDict['tGamesD'].columns.tolist()
-dataCColumns = dataDict['tGamesC'].columns.tolist()
-
-# Remove undesired columns for plotting
-nonPlotCols = ['LTeamID', 'WTeamID', 
-               'Season', 'WLoc', 
-               'WConfAbbrev', 'LConfAbbrev', 
-               'WSeed', 'LSeed',
-               'seedRankMatchup', 'confMatchup',
-               'WGames', 'LGames']
-
-loserColumns = filter(lambda col: col.startswith('W') == False, dataDColumns)
-loserColumns = filter(lambda col: (len(re.findall('^[^W].*', col))>0) & (col not in nonPlotCols), dataDColumns)
-winnerColumns = filter(lambda col: (col not in loserColumns) & (col not in nonPlotCols), dataDColumns)
-
-
-# Correlation Dictionary for detailed datasets
-corrDictD = {df : dataDict[df][winnerColumns + loserColumns].corr() for df in gamesDataD} 
-
-# Get unique correlations
-for df in gamesDataD:
-    corrDictD[df + 'Melt'] = pd.melt(corrDictD[df].reset_index(), 
-                                    id_vars = 'index', 
-                                    var_name = 'index2', 
-                                    value_name = 'corr')
-    
-    corrDictD[df + 'Melt']['attPair'] = zip(corrDictD[df + 'Melt']['index'].values.tolist(), 
-                                            corrDictD[df + 'Melt']['index2'].values.tolist())
-    
-    corrDictD[df + 'Melt']['attPair'] = corrDictD[df + 'Melt']['attPair'].map(lambda p: list(p))                                        
-    corrDictD[df + 'Melt']['attPair'].map(lambda p: p.sort())
-    corrDictD[df + 'Melt']['match'] = corrDictD[df + 'Melt'].apply(lambda row: ((row['index'] == row['attPair'][0]) 
-                                                                                & (row['index2'] == row['attPair'][1])), 
-                                                                    axis = 1)
-    #corrDictD[df + 'MeltUnq'] = corrDictD[df + 'Melt'].groupby(['attPair', 'corr'])['index'].count()
-    corrDictD[df + 'Melt']['diag'] = corrDictD[df + 'Melt']['attPair'].map(lambda p: p[0] == p[1])
-    corrDictD[df + 'MeltUnq'] = corrDictD[df + 'Melt'][((corrDictD[df + 'Melt']['diag'] == False)
-                                                            & (corrDictD[df + 'Melt']['match'] == True))][['index', 'index2', 'corr']]
-    # Isolate correlations </> 0.5                                                    
-    corrDictD[df + 'MeltUnqSig'] = corrDictD[df + 'MeltUnq'][corrDictD[df + 'MeltUnq']['corr'].map(lambda c: np.abs(c) >= 0.5)]
-    del(corrDictD[df + 'Melt'])
-    
-    # Sorted correlation for scoreGap
-    corrDictD[df + 'MeltScoreGap'] = corrDictD[df + 'MeltUnq'][corrDictD[df + 'MeltUnq']['index2'] == 'scoreGap']
-    corrDictD[df + 'MeltScoreGap'].sort_values(by = ['corr'], inplace = True)
-    
-    # Plot histogram of correlations
-    sns.distplot(corrDictD[df + 'MeltUnq']['corr'], bins = 20, kde=True)
-
-
-# Plot data for highest correlations (+ & -)
-topN = 3
-for df in gamesDataD:
-    jPlotList = (corrDictD[df + 'MeltScoreGap'][['index', 'index2']].head(topN).values.tolist()
-                    + corrDictD[df + 'MeltScoreGap'][['index', 'index2']].tail(topN).values.tolist())
-    
-    if df == 'tGamesD':
-        for pair in jPlotList:
-            sns.jointplot(x = pair[0], y = pair[1], data = dataDict[df], kind = 'reg')  
-    
-
-
-
-#==============================================================================
-# CALCULATE TEAM SEASON STATISTICS
-#==============================================================================
-
-# Aggregate metrics for team statisitcs
-
-winnerDCols = [  'Season',
-                 'DayNum',
-                 'WTeamID',
-                 'WScore',
-                 'WFGM',
-                 'WFGA',
-                 'WFGM3',
-                 'WFGA3',
-                 'WFTM',
-                 'WFTA',
-                 'WOR',
-                 'WDR',
-                 'WAst',
-                 'WTO',
-                 'WStl',
-                 'WBlk',
-                 'WPF',
-                 'WseedRank',
-                 'WOrdinalRank',
-                 'WGames',
-                 'scoreGap',
-                 'seedDelta',
-                 'ordinalRankDelta',
-                 'WFGpct',
-                 'WFGpct3',
-                 'WFTpct',
-                 'WScorepct',
-                 'WORpct',
-                 'WDRpct',
-                 'WRpct']
-                 
-loserDCols = [  'Season',
-                 'DayNum',
-                 'LTeamID',
-                 'LScore',
-                 'LFGM',
-                 'LFGA',
-                 'LFGM3',
-                 'LFGA3',
-                 'LFTM',
-                 'LFTA',
-                 'LOR',
-                 'LDR',
-                 'LAst',
-                 'LTO',
-                 'LStl',
-                 'LBlk',
-                 'LPF',
-                 'LseedRank',
-                 'LOrdinalRank',
-                 'LGames',
-                 'scoreGap',
-                 'seedDelta',
-                 'ordinalRankDelta',
-                 'LFGpct',
-                 'LFGpct3',
-                 'LFTpct',
-                 'LScorepct',
-                 'LORpct',
-                 'LDRpct',
-                 'LRpct']
-
-winnerCCols = [  'Season',
-                 'DayNum',
-                 'WTeamID',
-                 'WScore',
-                 'WseedRank',
-                 'WOrdinalRank',
-                 'WGames',
-                 'scoreGap',
-                 'seedDelta',
-                 'ordinalRankDelta'
-                 ]
-                 
-loserCCols = [   'Season',
-                 'DayNum',
-                 'LTeamID',
-                 'LScore',
-                 'LseedRank',
-                 'LOrdinalRank',
-                 'LGames',
-                 'scoreGap',
-                 'seedDelta',
-                 'ordinalRankDelta',
-                 ]             
-
-
-dataDict['winnerDData'] = dataDict['rGamesD'][winnerDCols]
-dataDict['loserDData'] = dataDict['rGamesD'][loserDCols]
-dataDict['winnerCData'] = dataDict['rGamesC'][winnerCCols]
-dataDict['loserCData'] = dataDict['rGamesC'][loserCCols]
-
-# Reverse deltas for losing data
-dataDict['loserDData'][['scoreGap', 'seedDelta', 'ordinalRankDelta']] = dataDict['loserDData'][['scoreGap', 'seedDelta', 'ordinalRankDelta']].applymap(lambda x: x * -1)
-dataDict['loserCData'][['scoreGap', 'seedDelta', 'ordinalRankDelta']] = dataDict['loserCData'][['scoreGap', 'seedDelta', 'ordinalRankDelta']].applymap(lambda x: x * -1)
-
-
-# Relabel columns for aggregating wins and losses data by team and season
-for df in ['winnerDData', 'loserDData']:
-    
-    dataDict[df].columns = [ 'Season',
-                             'DayNum',
-                             'TeamID',
-                             'Score',
-                             'FGM',
-                             'FGA',
-                             'FGM3',
-                             'FGA3',
-                             'FTM',
-                             'FTA',
-                             'OR',
-                             'DR',
-                             'Ast',
-                             'TO',
-                             'Stl',
-                             'Blk',
-                             'PF',
-                             'seedRank',
-                             'OrdinalRank',
-                             'Games',
-                             'scoreGap',
-                             'seedDelta',
-                             'ordinalRankDelta',
-                             'FGpct',
-                             'FGpct3',
-                             'FTpct',
-                             'Scorepct',
-                             'ORpct',
-                             'DRpct',
-                             'Rpct']
-
-
-for df in ['winnerCData', 'loserCData']:
-    
-    dataDict[df].columns = [ 'Season',
-                             'DayNum',
-                             'TeamID',
-                             'Score',
-                             'seedRank',
-                             'OrdinalRank',
-                             'Games',
-                             'scoreGap',
-                             'seedDelta',
-                             'ordinalRankDelta',
-                             ]
-
-
-# Combine wins and losses and aggregate to team level and then scale metrics
-
-# Scaler Dictionary
-scaleDict = {'scaleD': StandardScaler(), 
-             'scaleC' : StandardScaler(),
-             'scaleDTourney' : StandardScaler(),
-             'scaleCTourney' : StandardScaler()
-             }
-
-
-# Concat winning and losing data for team average statistics for the season
-# for both Detailed and compact datasets
-for x in ['D', 'C']:
-    dataDict['all' + x + 'Data'] = pd.concat([dataDict['winner' + x + 'Data'], 
-                                             dataDict['loser' + x + 'Data']], 
-                                            axis = 0)
-    
-    # Calculate mean statistics for each team & season                                        
-    dataDict['all' + x + 'DataTeam'] = dataDict['all' + x + 'Data'].groupby(['Season', 'TeamID']).mean()
-    
-    # Convert games to winning percentage    
-    dataDict['all' + x + 'DataTeam']['Games'] = dataDict['all' + x + 'DataTeam']['Games'].map(lambda x: 0.5*x + 0.5)
-    dataDict['all' + x + 'DataTeam'].rename(columns = {'Games':'winPct'}, inplace = True)
-
-    # Count # of games & merge with mean datagrame
-    counts = dataDict['all' + x + 'Data'].groupby(['Season', 'TeamID'])['DayNum'].count()
-    counts.rename('gameCount', inplace = True)
-    dataDict['all' + x + 'DataTeam'] = dataDict['all' + x + 'DataTeam'].merge(pd.DataFrame(counts), 
-                                                                              left_index = True, 
-                                                                              right_index = True)
-    
-
-        
-    
-    # Isoloate tournament teams
-    dataDict['all' + x + 'DataTTeam'] = dataDict['all' + x + 'DataTeam'][dataDict['all' + x + 'DataTeam']['seedRank'] <= 16]
-
-    # Scale data based on all teams
-    dataDict['all' + x + 'DataTeamScaled'] = pd.DataFrame(scaleDict['scale' + x].fit_transform(dataDict['all' + x + 'DataTeam']),
-                                                          index = dataDict['all' + x + 'DataTeam'].index,
-                                                          columns = dataDict['all' + x + 'DataTeam'].columns)                
-      
-    # Scale data based on tournament teams only  
-    dataDict['all' + x + 'DataTTeamScaled'] = pd.DataFrame(scaleDict['scale' + x].fit_transform(dataDict['all' + x + 'DataTTeam']),
-                                                          index = dataDict['all' + x + 'DataTTeam'].index,
-                                                          columns = dataDict['all' + x + 'DataTTeam'].columns) 
-    
-    # Merge conferences & seed data
-    for df in ['all' + x + 'DataTeam', 
-               'all' + x + 'DataTTeam',
-               'all' + x + 'DataTeamScaled',
-               'all' + x + 'DataTTeamScaled']:
-                   
-            
-        dataDict[df] = (dataDict[df].merge(pd.DataFrame(
-                                                dataDict['tSeeds'].set_index(['Season', 'TeamID'])['Seed']),
-                                                  how = 'left', 
-                                                  left_index = True,
-                                                  right_index = True)
-                                            )                                                                    
-        
-        dataDict[df] = (dataDict[df].merge(dataDict['teamConferences'].set_index(['Season', 'TeamID']), 
-                                            how = 'left', 
-                                            left_index = True,
-                                            right_index = True)
-                                              )
-    
-    
-    # Delete building datafarmes
-    del(dataDict['winner' + x + 'Data'], dataDict['loser' + x + 'Data'])                                                                          
-
-
-
-#==============================================================================
-# PCA ON TEAM STATISTICS
-#==============================================================================
-
-
-
-pcaDict = {}
-
-plt.figure()
-cMap = plt.cm.jet
-
-
-pcaList = ['allDDataTeamScaled', 'allDDataTTeamScaled', 
-           'allCDataTeamScaled', 'allCDataTTeamScaled']
-
-for i, df in enumerate(pcaList):
-    
-    pcaDict[df] = map(lambda n: pcaVarCheck(n, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
-                                                                 axis = 1)), 
-                      xrange(2, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
-                                                                 axis = 1).shape[1], 1))
-
-    plt.plot(xrange(2, dataDict[df].drop(['Seed', 'ConfAbbrev'], 
-                                                                 axis = 1).shape[1], 1), 
-             zip(*pcaDict[df])[1], 
-             c = cMap(int(((i/(len(pcaList)-1))*256))), 
-             marker = 'o', label = df)
-    
-    plt.xlabel('# of Components', fontsize = 20)
-    plt.ylabel('% Vairance Explained', fontsize = 20)
-    plt.title('Principal Component Analysis', fontsize = 24)
-    
-    plt.legend(fontsize = 20)
-    plt.grid(True)
-    plt.xticks(fontsize = 20)
-    plt.yticks(fontsize = 20)
-
-
-
-
-# Create new matchups with team stats (one with all data and one with just tournament data)
-baseDFcols = ['Season', 'DayNum', 'WTeamID', 'LTeamID', 'scoreGap']
-for df in ['tGames', 'rGames']:
-    for label in ['C', 'D']:
-        for datatype in ['DataTeam', 'DataTeamScaled']:
-             dataDict[df + label + datatype] = generateGameMatchupStats(gameDF = dataDict[df + label][baseDFcols],
-                                                                        teamDF = dataDict['all' + label + datatype],
-                                                                        teamID1 = 'WTeamID',
-                                                                        teamID2 = 'LTeamID',
-                                                                        label1 = 'W',
-                                                                        label2 = 'L',
-                                                                        extraMergeFields = ['Season'],
-                                                                        createMatchupFields = True,
-                                                                        matchupFields = [('confMatchup', 'ConfAbbrev'), 
-                                                                                         ('seedRankMatchup', 'seedRank')])
-                                                                                         
-             if (df == 'tGames') & (datatype == 'DataTeamScaled'):
-                dataDict[df + label + 'DataTTeamScaled'] = generateGameMatchupStats(gameDF = dataDict[df + label][baseDFcols],
-                                                                        teamDF = dataDict['all' + label + 'DataTTeamScaled'],
-                                                                        teamID1 = 'WTeamID',
-                                                                        teamID2 = 'LTeamID',
-                                                                        label1 = 'W',
-                                                                        label2 = 'L',
-                                                                        extraMergeFields = ['Season'],
-                                                                        createMatchupFields = True,
-                                                                        matchupFields = [('confMatchup', 'ConfAbbrev'), 
-                                                                                         ('seedRankMatchup', 'seedRank')])
-                                      
-
-# Create new matchups with team stats (one with all data and one with just tournament data)
-#==============================================================================
-# for df in ['tGames', 'rGames']:
-#     for label in ['C', 'D']:
-#         for datatype in ['DataTeam', 'DataTeamScaled']:
-# 
-#             
-# 
-#             # Filter selected base columns
-#             joinDF = dataDict[df + label][['Season', 'DayNum', 
-#                                            'WTeamID', 'LTeamID',
-#                                            'scoreGap',
-#                                            'WConfAbbrev', 'LConfAbbrev',
-#                                            'confMatchup', 'seedRankMatchup', 
-#                                            'seedDelta', 'ordinalRankDelta']]
-#             
-#             joinDFT = joinDF.copy()
-# 
-#             for t in ['W', 'L']:     
-#     
-#                 joinDFCols = joinDF.columns.tolist()          
-#                 
-#                 # Combine base columns with team stats
-#                 joinDF = joinDF.merge(dataDict['all' + label + datatype], 
-#                                       left_on = ['Season', t + 'TeamID'],
-#                                       right_index = True)
-#                                   
-#                 colNames = dataDict['all' + label + datatype].columns.tolist()
-#                 colNames = map(lambda name: t + name, colNames)
-#             
-#                 joinDF.columns = joinDFCols + colNames
-#         
-#                 # Create special dataframe of tournament data with data
-#                 #   scaled with tournament teams only
-#                 if (df == 'tGames') & (datatype == 'DataTeamScaled'):
-#                     joinDFTCols = joinDFT.columns.tolist()                     
-#                     joinDFT = joinDFT.merge(dataDict['all' + label + 'DataTTeamScaled'], 
-#                                             left_on = ['Season', t + 'TeamID'],
-#                                             right_index = True)
-#                                             
-#                     joinDFT.columns = joinDFTCols + colNames           
-#                     
-#                     
-#         
-#             dataDict[df + label + datatype] = joinDF
-#             if (df == 'tGames') & (datatype == 'DataTeamScaled'):
-#                 dataDict[df + label + 'DataTTeamScaled'] = joinDFT
-#==============================================================================
-    
-
-# Randomnly split games data frames in half and swap columns for creating
-# model datasets
-matchupDFsList = list(product(['tGames', 'rGames'], 
-                              ['C', 'D'], 
-                              ['DataTeam', 'DataTeamScaled']))
-                              
-matchupDFsList = map(lambda l: reduce(lambda x,y: x+y, l), matchupDFsList) 
-matchupDFsList += ['tGamesCDataTTeamScaled', 'tGamesDDataTTeamScaled']
-
-for df in matchupDFsList:
-    dataDict[df + 'Model'] = buildModelData(df)     
-    dataDict[df + 'ModelFold'] = buildModelDataFold(df)   
-     
-# Perform pca on new matchup modeling for dimensionality reduction
-pcaExcludeCols = ['ATeamID', 'BTeamID',
-                   'AConfAbbrev', 'BConfAbbrev',
-                   'ASeed', 'BSeed',
-                  'Season', 'DayNum', 
-                  'confMatchup', 'seedRankMatchup',
-                  'scoreGap', 'winnerA']  
-
-pcaList = filter(lambda name: len(re.findall('.*Scaled.*', name))>0, 
-                 map(lambda name2: name2 + 'ModelFold', matchupDFsList))
-
-pcaList = filter(lambda name: name.endswith('ScaledModelFold')==False, 
-                 map(lambda name2: name2 + 'ModelFold', matchupDFsList))
-
-'a'.endswith
-
-plt.figure()
-cMap = plt.cm.jet
-
-for i, df in enumerate(pcaList):
-    pcaCols = filter(lambda col: col not in pcaExcludeCols, dataDict[df].columns.tolist())
-    
-    pcaDict[df] = map(lambda n: pcaVarCheck(n, dataDict[df][pcaCols]), 
-                      xrange(2, len(pcaCols), 2))
-
-    plt.plot(xrange(2, len(pcaCols), 2), 
-             zip(*pcaDict[df])[1], 
-             c = cMap(int(((i/(len(pcaList)-1))*256))), 
-             marker = 'o', 
-             label = df)
-             
-    plt.xlabel('# of Components', fontsize = 20)
-    plt.ylabel('% Vairance Explained', fontsize = 20)
-    plt.title('Principal Component Analysis of Model Matchups', fontsize = 24)
-    plt.legend(fontsize = 20)
-    plt.grid(True)
-    plt.xticks(fontsize = 20)
-    plt.yticks(fontsize = 20)
-    
-
-## Based on the loop above 99%+ of the total variance can be explained with
-## 4 pca dimensions
-
-# transform scaled data to pca dimensions
-for df in pcaList:
-
-    scaleDict[df] = StandardScaler()    
-    
-    pcaCols = filter(lambda col: col not in pcaExcludeCols, 
-                     dataDict[df].columns.tolist())    
-    
-    
-    dataTrans = pcaDict[df][1][0].transform(dataDict[df][pcaCols])
-    
-    dataTransS = scaleDict[df].fit_transform(dataTrans)  
-    
-    dataStack = pd.concat((dataDict[df][pcaExcludeCols], 
-                           pd.DataFrame(dataTrans)), 
-                            axis = 1, 
-                            ignore_index = True)  
-     
-    dataStackS = pd.concat((dataDict[df][pcaExcludeCols], 
-                           pd.DataFrame(dataTransS)), 
-                            axis = 1, 
-                            ignore_index = True)                        
-                            
-    dataStack.columns = pcaExcludeCols + ['pca0', 'pca1', 'pca2', 'pca3']
-    dataStackS.columns = pcaExcludeCols + ['pca0', 'pca1', 'pca2', 'pca3']
-    dataDict[df + 'PCA'] = dataStack
-    dataDict[df + 'PCAS'] = dataStackS
-  
- 
-
-
-
-
-#x = dataDict[df + 'TeamStats' + label]['LTeamID'].head()
-
-
-
-mdlDict = {#'dTree' : {'model' : DecisionTreeClassifier(),
-            #          'gridParams' : {'min_samples_split' : xrange(2, 20, 2),
-             #                         }
-             #         },
-                                      
-           'rForest' : {'model' : RandomForestClassifier(random_state = 1127,
-                                                         n_estimators = 100,
-                                                         n_jobs = -1,
-                                                         verbose = 0),
-                        'gridParams' : {'min_samples_split' : xrange(2, 20, 4),
-                                        'min_samples_leaf' : xrange(2, 10, 4),
-                                        'n_estimators' : [50, 100]}
-                        },
-                                        
-            'logR' : {'model': LogisticRegression(random_state = 1127),
-                      'gridParams' : {'C': map(lambda i: 10**i, xrange(-1,3))}
-                      },
-            'knn' : {'model': KNeighborsClassifier(),
-                     'gridParams' : {'n_neighbors' : xrange(3, 9, 2)}
-                     },
-            'nb' : {'model': GaussianNB(),
-                    'gridParams' : {}
-                     },
-            'svc' : {'model': SVC(probability = True),
-                     'gridParams' : {'C': map(lambda i: 10**i, xrange(-1,3)),
-                                     'gamma' : map(lambda i: 10**i, xrange(-3,1))}
-                     }
-            }
-
-
-
-
-
-modelDataList = filter(lambda dfName: ((len(re.findall('^t.*TT.*ScaledModel.*', dfName))>0) 
-                                        | (len(re.findall('^t.*PCAS', dfName))>0)), dataDict.keys())
-
-
-modelDataList = filter(lambda dfName: ((len(re.findall('^t.*TT.*ScaledModel.*', dfName))>0) 
-                                        ), dataDict.keys())
-                                        
-trainDataList =  filter(lambda dfName: ((len(re.findall('^r.*Team.*ScaledModel.*', dfName))>0) 
-                                        ), dataDict.keys())                                       
-modelDataList.sort()
-trainDataList.sort()
-
-mdlExcludeCols = ['ATeamID', 'BTeamID', 'AConfAbbrev', 'BConfAbbrev',
-                  'Season', 'DayNum', 'confMatchup', 'seedRankMatchup',
-                  'scoreGap', 'winnerA', 'ASeed', 'BSeed']
-
-#df = modelDataList[1]
- 
-#timeList = []
-mdlSum = []
-timer()
-
-
-
-for df in modelDataList:
-    mdlCols = filter(lambda col: col not in mdlExcludeCols, dataDict[df].columns.tolist())
-    
-#==============================================================================
-#     xTrain, xTest, yTrain, yTest = train_test_split(dataDict[df][mdlCols], 
-#                                                 dataDict[df]['winnerA'],
-#                                                 test_size = 0.2,
-#                                                 train_size = 0.8)
-#==============================================================================
-       
-    gridSearch = False                              
-    for mdl in mdlDict.iterkeys():
-        mdlDict[mdl][df]={} 
-        
-        if gridSearch == True:
-            mdlDict[mdl][df]['model'] = GridSearchCV(estimator = mdlDict[mdl]['model'],
-                                                     param_grid = mdlDict[mdl]['gridParams'],
-                                                     refit = True,
-                                                     verbose = 2)
-        
-        else: mdlDict[mdl][df]['model'] = mdlDict[mdl]['model']
-            
-        (mdlDict[mdl][df]['predictions'],
-         mdlDict[mdl][df]['predictProbas'],
-         mdlDict[mdl][df]['auc'],
-         mdlDict[mdl][df]['accuracy']) = modelAnalysis(model = mdlDict[mdl][df]['model'],
-                                                                    data = dataDict[df],
-                                                                    targetCol = 'winnerA',
-                                                                    indCols = mdlCols,
-                                                                    testTrainSplit = 0.2) 
-             
-        mdlSum.append((df, mdl, mdlDict[mdl][df]['auc'], mdlDict[mdl][df]['accuracy'], timer()))
-        
-        
-mdlSum = pd.DataFrame(mdlSum, columns = ['df', 'model', 'auc', 'accuracy', 'calcTime'])       
- 
-mdlSum = mdlSum.sort_values(by = 'accuracy', ascending = False) 
- 
-bestModel = mdlSum[mdlSum['accuracy'] == mdlSum['accuracy'].max()].values.tolist()[0]    
-
-# Get best model for each model type
-bestModelType = mdlSum.groupby('model')['accuracy'].max()
-bestModelType = mdlSum.merge(pd.DataFrame(bestModelType, 
-                          columns = ['maxAccuracy']), 
-            left_on = 'model', 
-            right_index = True)
-bestModelType = bestModelType[bestModelType['accuracy'] == bestModelType['maxAccuracy']]
 
 
  
