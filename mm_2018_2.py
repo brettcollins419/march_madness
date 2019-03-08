@@ -989,7 +989,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                                     label1 = 'W', 
                                                                     label2 = 'L',
                                                                     calculateDeltas = True,
-                                                                    returnStatCols = True,
+                                                                    returnStatCols = False,
                                                                     createMatchupFields = True)
     
     # Build initial model dataset                                                                
@@ -1008,7 +1008,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                            label1 = 'A', 
                                                            label2 = 'B',
                                                            calculateDeltas = True,
-                                                           returnStatCols = True,
+                                                           returnStatCols = False,
                                                            createMatchupFields = True)
     
     # Pull out winnerA column from index
@@ -1045,7 +1045,7 @@ for df in ['rGamesCTeamSeasonStats', 'rGamesDTeamSeasonStats']:
 corrExcludeFilter = lambda c: (((c not in colsBase) | 
                                 (c in ('scoreGap', 'winnerA'))) 
                                     & (c.endswith('TeamID') == False))
-
+fig, ax = plt.subplots(1)
 
 for df in map(lambda n: n + 'modelData', 
               filter(lambda d: d.startswith('t'), gamesData)):
@@ -1075,10 +1075,12 @@ for df in map(lambda n: n + 'modelData',
     
     
     
-    ax.plot(x['rank'], x['scaled'], lw = 10)
-    ax.tick_params(labelsize = 18)
-    ax.set_xlabel('Rank', fontsize = 24)
-    ax.set_ylabel('correlation', fontsize = 24)
+    ax.plot(x['rank'], x['corr'], lw = 10, label = df)
+
+ax.tick_params(labelsize = 18)
+ax.set_xlabel('Rank', fontsize = 24)
+ax.set_ylabel('correlation', fontsize = 24)
+ax.legend()
     
     
            
