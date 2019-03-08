@@ -26,6 +26,7 @@ import os
 import re
 from itertools import product, islice, chain, repeat
 from datetime import datetime
+import socket
 
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -681,18 +682,15 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
 # END FUNCTIONS
 #==============================================================================
 
-#location = 'dsw'
-location = 'home'
 
-if location.strip().lower() == 'home':
-  # Home setup
-  dataFolder = 'C:\\Users\\brett\\Documents\\march_madness_ml\\datasets\\2018\\'
-  os.chdir('C:\\Users\\brett\\Documents\\march_madness_ml\\')
-  
-else:
-  # DSW setup
-  dataFolder = '/home/cdsw/data/'
-#  %matplotlib inline
+
+
+# Set working directory
+wds = {'WaterBug' : 'C:\\Users\\brett\\Documents\\march_madness_ml',
+             'WHQPC-L60102' : 'C:\\Users\\u00bec7\\Desktop\\personal\\march_madness_ml',
+             'raspberrypi' : '/home/pi/Documents/march_madness_ml'
+             }
+
 
         
 
@@ -701,7 +699,7 @@ else:
 #==============================================================================
 
 # Read data
-dataFiles = os.listdir(dataFolder)
+dataFiles = os.listdir('datasets\\2019')
 dataFiles.sort()
 
 # Remove zip files
@@ -732,7 +730,7 @@ keyNames = [ 'cities',
              'teamSpellings'
              ]
 
-dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFiles)}
+dataDict = {k : pd.read_csv('datasets\\2019\\{}'.format(data)) for k, data in zip(keyNames, dataFiles)}
 
 
 #==============================================================================
@@ -1083,7 +1081,7 @@ ax.set_ylabel('correlation', fontsize = 24)
 ax.legend()
     
     
-           
+fig           
 
 del(corrColsTemp, x)
 
@@ -1466,8 +1464,9 @@ sns.factorplot(x = 'param_fReduce__n_components',
    
 
 plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
-            modelDict['tGamesC']['gridResults']['mean_test_score'])       
-           modelDict['tGamesC'].keys()
+            modelDict['tGamesC']['gridResults']['mean_test_score'],     
+            modelDict['tGamesC'].keys()
+            )
 
 
 
