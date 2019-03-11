@@ -692,6 +692,7 @@ wds = {'WaterBug' : 'C:\\Users\\brett\\Documents\\march_madness_ml',
              }
 
 
+os.chdir(wds.get(socket.gethostname()))
         
 
 #==============================================================================
@@ -1467,8 +1468,6 @@ plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
             modelDict['tGamesC']['gridResults']['mean_test_score'],     
             modelDict['tGamesC'].keys()
             )
-
-
 
 
 
