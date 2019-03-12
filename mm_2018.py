@@ -24,6 +24,7 @@ import os
 import re
 from itertools import product, islice, chain, repeat
 from datetime import datetime
+import socket
 
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -35,9 +36,9 @@ from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report, confusion_matrix, auc, roc_auc_score, accuracy_score
 
 
-dataFolder = 'C:\\Users\\brett\\Documents\\march_madness_ml\\datasets\\2018\\'
+#dataFolder = 'C:\\Users\\brett\\Documents\\march_madness_ml\\datasets\\2018\\'
 
-os.chdir('C:\\Users\\brett\\Documents\\march_madness_ml\\')
+#os.chdir('C:\\Users\\brett\\Documents\\march_madness_ml\\')
 
 
 '''Analysis steps
@@ -307,6 +308,93 @@ def generateOldTourneyResults(tSeeds, tSlots, tGames, yr):
 
 
 
+def tourneyPredictions(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
+    
+    if 'Season' in tSeeds.columns.tolist():
+        tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
+        #tSeeds = tSeeds.drop('Season', inplace = True, axis = 1)
+    else: tSeeds = tSeeds[['Seed', 'TeamID']]
+    
+    if 'Season' in tSlots.columns.tolist():
+        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
+        #tSlots = tSlots.drop('Season', inplace = True, axis = 1)
+    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
+    
+    if 'Season' in teamDF.columns.tolist():
+        teamDF = teamDF[teamDF['Season'] == yr]
+        teamDF.drop('Season', inplace = True, axis = 1)
+
+    seedDict = dict(tSeeds.values.tolist())
+    resultProbDict = {}
+    
+    tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
+    
+    
+    # Loop through rounds making predictions
+    while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
+        
+        # Match seeds to slot for matchups
+        for seed in ['Strong', 'Weak']:
+            tSlots[seed + 'Team'] = tSlots[seed + 'Seed'].map(lambda t: seedDict.get(t, 'x'))
+        
+        # Need to error handle for all numeric indexes (last round)    
+        slotMatchUps = tSlots[((tSlots['StrongTeam'].map(str) != 'x')
+                                 & (tSlots['WeakTeam'].map(str) != 'x')
+                                 & (tSlots['winProb'] == 0))][['Slot', 'StrongTeam', 'WeakTeam']]
+        
+        
+        # Generate matchup data for modeling
+        slotMatchUps2 = generateGameMatchupStats(gameDF = slotMatchUps, 
+                                                 teamDF = teamDF, 
+                                                teamID1='StrongTeam', 
+                                                teamID2 = 'WeakTeam',
+                                                label1 = 'A',
+                                                label2 = 'B',
+                                                extraMergeFields=[],
+                                                createMatchupFields=True,
+                                                deltaFields=['seedRank', 'OrdinalRank'], 
+                                                matchupFields=[('confMatchup', 'ConfAbbrev'), 
+                                                               ('seedRankMatchup', 'seedRank')])
+        # Predict winner and winning probability
+        slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
+        slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
+        
+        # Assign TeamID to roundWinner (1 = StrongSeed/Team, 0 = WeakTeam/Seed)
+        slotMatchUps['rndWinner'] = slotMatchUps.apply(lambda game: game['StrongTeam'] if game['rndWinner'] == 1 else game['WeakTeam'], 
+                                                        axis = 1)
+        
+        # Convert results to dictionary and update base dictionaries with new results
+        winnerDict = slotMatchUps.set_index('Slot').to_dict()
+        seedDict.update(winnerDict['rndWinner'])
+        resultProbDict.update(winnerDict['winProb'])
+        
+        
+        # Update tSlots dataframe with winner results
+        for team in [('rndWinner', 'Slot'), ('StrongTeam', 'StrongSeed'), ('WeakTeam', 'WeakSeed')]:
+            tSlots[team[0]] = tSlots[team[1]].map(lambda result: seedDict.get(result, 'x'))
+        tSlots['winProb'] = tSlots['Slot'].map(lambda result: resultProbDict.get(result, 0))
+        
+        
+    # Map team name and original seed to results
+    for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
+        tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
+                              left_on = team, right_index = True)
+        tSlots.rename(columns = {'TeamName' : team + 'Name'}, inplace = True)
+                    
+        tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
+                              left_on = team, right_index = True)
+    
+        tSlots.rename(columns = {'Seed' : team + 'Seed'}, inplace = True)
+    
+    # Order & clean results 
+    tSlots = tSlots.sort_values('Slot')
+    tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
+                          'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
+                          'winProb']]
+
+    return tSlots, tSlotsClean
+
+
 def pcaVarCheck(n, data):
     '''Calculate PCA and return the pca object & explained variance'''
     
@@ -341,8 +429,21 @@ def timer(sigDigits = 3):
 # LOAD DATA 
 #==============================================================================
 
+
+# Set working directory
+wds = {'WaterBug' : 'C:\\Users\\brett\\Documents\\march_madness_ml',
+             'WHQPC-L60102' : 'C:\\Users\\u00bec7\\Desktop\\personal\\march_madness_ml',
+             'raspberrypi' : '/home/pi/Documents/march_madness_ml'
+             }
+
+
+os.chdir(wds.get(socket.gethostname()))
+
+
+
+
 # Read data
-dataFiles = os.listdir('datasets\\2018')
+dataFiles = os.listdir('datasets\\2019')
 
 # Remove zip files
 dataFiles = filter(lambda f: '.csv' in f, dataFiles)
@@ -383,8 +484,8 @@ keyNames = [ 'cities',
              'teams',
              'teamSpellings']
 
-dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFiles)}
-
+# dataDict = {k[0]: pd.read_csv(dataFolder + k[1]) for k in zip(keyNames, dataFiles)}
+dataDict = {k : pd.read_csv('datasets\\2019\\{}'.format(data)) for k, data in zip(keyNames, dataFiles)}
 
 
 #==============================================================================
@@ -1118,14 +1219,13 @@ bestModel = mdlSum[mdlSum['accuracy'] == mdlSum['accuracy'].max()].values.tolist
 
 # Get best model for each model type
 bestModelType = mdlSum.groupby('model')['accuracy'].max()
-bestModelType = mdlSum.merge(pd.DataFrame(bestModelType, 
-                          columns = ['maxAccuracy']), 
+bestModelType = mdlSum.merge(pd.DataFrame(bestModelType).rename(columns = {'accuracy':'maxAccuracy'}), 
             left_on = 'model', 
             right_index = True)
 bestModelType = bestModelType[bestModelType['accuracy'] == bestModelType['maxAccuracy']]
 
 
- 
+
 #==============================================================================
 # ### 2018 PREDICTIONS ### 
 #==============================================================================
@@ -1145,7 +1245,11 @@ resultProbDict = {}
 
 # Get correct dataframe with team stats for modeling
 teamDF = 'all' + bestModel[0][6:bestModel[0].find('Model')] 
-teamDF = dataDict[teamDF][dataDict[teamDF]['Season'] == yr]
+teamDF = dataDict[teamDF]
+teamDF.reset_index('Season', inplace = True)
+
+
+teamDF = teamDF[teamDF['Season'] == yr]
 teamDF.drop('Season', inplace=True, axis = 1)
 
 
@@ -1153,6 +1257,13 @@ teamDF.drop('Season', inplace=True, axis = 1)
 
 tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
 
+
+#######################################################
+#######################################################
+#######################################################
+### FUNCTIONAL CODE UP TO HERE 3/12/19 ################
+#######################################################
+#######################################################
 
 while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
     
@@ -1266,93 +1377,6 @@ tOldResults = generateOldTourneyResults(tSeeds = dataDict['tSeeds'],
 tSeeds, tSlots, tGames, yr = dataDict['tSeeds'], dataDict['tSlots'], dataDict['tGamesC'], 2017
 
 
-
-
-def tourneyPredictions(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
-    
-    if 'Season' in tSeeds.columns.tolist():
-        tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
-        #tSeeds = tSeeds.drop('Season', inplace = True, axis = 1)
-    else: tSeeds = tSeeds[['Seed', 'TeamID']]
-    
-    if 'Season' in tSlots.columns.tolist():
-        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
-        #tSlots = tSlots.drop('Season', inplace = True, axis = 1)
-    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
-    
-    if 'Season' in teamDF.columns.tolist():
-        teamDF = teamDF[teamDF['Season'] == yr]
-        teamDF.drop('Season', inplace = True, axis = 1)
-
-    seedDict = dict(tSeeds.values.tolist())
-    resultProbDict = {}
-    
-    tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
-    
-    
-    # Loop through rounds making predictions
-    while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
-        
-        # Match seeds to slot for matchups
-        for seed in ['Strong', 'Weak']:
-            tSlots[seed + 'Team'] = tSlots[seed + 'Seed'].map(lambda t: seedDict.get(t, 'x'))
-        
-        # Need to error handle for all numeric indexes (last round)    
-        slotMatchUps = tSlots[((tSlots['StrongTeam'].map(str) != 'x')
-                                 & (tSlots['WeakTeam'].map(str) != 'x')
-                                 & (tSlots['winProb'] == 0))][['Slot', 'StrongTeam', 'WeakTeam']]
-        
-        
-        # Generate matchup data for modeling
-        slotMatchUps2 = generateGameMatchupStats(gameDF = slotMatchUps, 
-                                                 teamDF = teamDF, 
-                                                teamID1='StrongTeam', 
-                                                teamID2 = 'WeakTeam',
-                                                label1 = 'A',
-                                                label2 = 'B',
-                                                extraMergeFields=[],
-                                                createMatchupFields=True,
-                                                deltaFields=['seedRank', 'OrdinalRank'], 
-                                                matchupFields=[('confMatchup', 'ConfAbbrev'), 
-                                                               ('seedRankMatchup', 'seedRank')])
-        # Predict winner and winning probability
-        slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
-        slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
-        
-        # Assign TeamID to roundWinner (1 = StrongSeed/Team, 0 = WeakTeam/Seed)
-        slotMatchUps['rndWinner'] = slotMatchUps.apply(lambda game: game['StrongTeam'] if game['rndWinner'] == 1 else game['WeakTeam'], 
-                                                        axis = 1)
-        
-        # Convert results to dictionary and update base dictionaries with new results
-        winnerDict = slotMatchUps.set_index('Slot').to_dict()
-        seedDict.update(winnerDict['rndWinner'])
-        resultProbDict.update(winnerDict['winProb'])
-        
-        
-        # Update tSlots dataframe with winner results
-        for team in [('rndWinner', 'Slot'), ('StrongTeam', 'StrongSeed'), ('WeakTeam', 'WeakSeed')]:
-            tSlots[team[0]] = tSlots[team[1]].map(lambda result: seedDict.get(result, 'x'))
-        tSlots['winProb'] = tSlots['Slot'].map(lambda result: resultProbDict.get(result, 0))
-        
-        
-    # Map team name and original seed to results
-    for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
-        tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
-                              left_on = team, right_index = True)
-        tSlots.rename(columns = {'TeamName' : team + 'Name'}, inplace = True)
-                    
-        tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
-                              left_on = team, right_index = True)
-    
-        tSlots.rename(columns = {'Seed' : team + 'Seed'}, inplace = True)
-    
-    # Order & clean results 
-    tSlots = tSlots.sort_values('Slot')
-    tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
-                          'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
-                          'winProb']]
-
-    return tSlots, tSlotsClean
 
 
 

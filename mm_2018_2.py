@@ -1490,6 +1490,22 @@ plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
 #==============================================================================
 #==============================================================================
 #==============================================================================
+       mdlSum.append((df, mdl, mdlDict[mdl][df]['auc'], mdlDict[mdl][df]['accuracy'], timer()))
+        
+        
+mdlSum = pd.DataFrame(mdlSum, columns = ['df', 'model', 'auc', 'accuracy', 'calcTime'])       
+ 
+mdlSum = mdlSum.sort_values(by = 'accuracy', ascending = False) 
+ 
+bestModel = mdlSum[mdlSum['accuracy'] == mdlSum['accuracy'].max()].values.tolist()[0]    
+
+# Get best model for each model type
+bestModelType = mdlSum.groupby('model')['accuracy'].max()
+bestModelType = mdlSum.merge(pd.DataFrame(bestModelType, 
+                          columns = ['maxAccuracy']), 
+            left_on = 'model', 
+            right_index = True)
+bestModelType = bestModelType[bestModelType['accuracy'] == bestModelType['maxAccuracy']]
 
 
 
