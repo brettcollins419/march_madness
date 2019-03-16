@@ -25,6 +25,7 @@ import re
 from itertools import product, islice, chain, repeat
 from datetime import datetime
 import socket
+import traceback
 
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
@@ -251,6 +252,9 @@ def generateOldTourneyResults(tSeeds, tSlots, tGames, yr):
     Return tSlots dataframe with StrongTeam, WeakTeam, and winner columns added.
     '''
    
+    # Create Copies of DataFrames
+    tSeeds, tSlots, tGames = tSeeds.copy(), tSlots.copy(), tGames.copy()
+    
     # Clean up dataframes for specific season and isolate only desired columns
     if 'Season' in tSeeds.columns.tolist():
         tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
@@ -310,19 +314,23 @@ def generateOldTourneyResults(tSeeds, tSlots, tGames, yr):
 
 def tourneyPredictions(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
     
+    # Create copies of DataFrames
+    tSeeds, tSlots, teamDF = tSeeds.copy(), tSlots.copy(), teamDF.copy()
+    
     if 'Season' in tSeeds.columns.tolist():
         tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
         #tSeeds = tSeeds.drop('Season', inplace = True, axis = 1)
     else: tSeeds = tSeeds[['Seed', 'TeamID']]
     
     if 'Season' in tSlots.columns.tolist():
-        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
+        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']].copy()
         #tSlots = tSlots.drop('Season', inplace = True, axis = 1)
-    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
+    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']].copy()  
     
-    if 'Season' in teamDF.columns.tolist():
-        teamDF = teamDF[teamDF['Season'] == yr]
-        teamDF.drop('Season', inplace = True, axis = 1)
+    if 'Season' in teamDF.index.names:
+        teamDF = teamDF[teamDF.index.get_level_values('Season') == 2018]
+        teamDF.reset_index('Season', inplace = True)
+        teamDF.drop('Season', axis = 1, inplace = True)
 
     seedDict = dict(tSeeds.values.tolist())
     resultProbDict = {}
@@ -1245,7 +1253,7 @@ resultProbDict = {}
 
 # Get correct dataframe with team stats for modeling
 teamDF = 'all' + bestModel[0][6:bestModel[0].find('Model')] 
-teamDF = dataDict[teamDF]
+teamDF = dataDict[teamDF].copy()
 teamDF.reset_index('Season', inplace = True)
 
 
@@ -1258,12 +1266,7 @@ teamDF.drop('Season', inplace=True, axis = 1)
 tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
 
 
-#######################################################
-#######################################################
-#######################################################
-### FUNCTIONAL CODE UP TO HERE 3/12/19 ################
-#######################################################
-#######################################################
+
 
 while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
     
@@ -1305,7 +1308,10 @@ while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist
     for team in [('rndWinner', 'Slot'), ('StrongTeam', 'StrongSeed'), ('WeakTeam', 'WeakSeed')]:
         tSlots[team[0]] = tSlots[team[1]].map(lambda result: seedDict.get(result, 'x'))
     tSlots['winProb'] = tSlots['Slot'].map(lambda result: resultProbDict.get(result, 0))
+  
     
+    
+
     
 # Map team name and original seed to results
 for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
@@ -1323,6 +1329,15 @@ tSlots = tSlots.sort_values('Slot')
 tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
                       'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
                       'winProb']]
+
+
+#######################################################
+#######################################################
+#######################################################
+### FUNCTIONAL CODE UP TO HERE 3/15/19 ################
+#######################################################
+#######################################################
+    
 
 
 mdlCols = filter(lambda col: col not in mdlExcludeCols, 
@@ -1348,25 +1363,33 @@ tPredict, tPredictClean = tourneyPredictions(model = model,
 
 
 for mdl, df in bestModelType[['model', 'df']].values.tolist():   
-    mdlCols = filter(lambda col: col not in mdlExcludeCols, 
-                 dataDict[df].columns.tolist()) 
     
-    teamDFname = 'all' + df[6:df.find('Model')]    
+    try:
+        mdlCols = filter(lambda col: col not in mdlExcludeCols, 
+                     dataDict[df].columns.tolist()) 
+        
+        teamDFname = 'all' + df[6:df.find('Model')]    
+        
+        mdlDict[mdl]['bestPredictions'], mdlDict[mdl]['bestPredictionsClean'] = tourneyPredictions(model = mdlDict[mdl]['model'], 
+                              teamDF = dataDict[teamDFname],
+                              tSeeds = dataDict['tSeeds'],
+                              tSlots = dataDict['tSlots'],
+                              mdlCols = mdlCols,
+                              yr = 2018)
+        
+        fName = '_'.join(['2018_model_results',
+                          mdl,
+                          df, 
+                          datetime.strftime(datetime.now(), '%Y_%m_%d')])
     
-    mdlDict[mdl]['bestPredictions'], mdlDict[mdl]['bestPredictionsClean'] = tourneyPredictions(model = mdlDict[mdl]['model'], 
-                          teamDF = dataDict[teamDFname],
-                          tSeeds = dataDict['tSeeds'],
-                          tSlots = dataDict['tSlots'],
-                          mdlCols = mdlCols,
-                          yr = 2018)
-    
-    fName = '_'.join(['2018_model_results',
-                      mdl,
-                      df, 
-                      datetime.strftime(datetime.now(), '%Y_%m_%d')])
+        mdlDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
+      
+    except Exception as exc:
 
-    mdlDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
-    
+        print traceback.format_exc()
+        print exc
+        print '{} error'.format(mdl)
+        continue
 
 
 tOldResults = generateOldTourneyResults(tSeeds = dataDict['tSeeds'],
