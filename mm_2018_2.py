@@ -15,9 +15,7 @@ import string
 #import sklearn as sk
 #from sklearn import svm, linear_model, ensemble, neighbors, tree, naive_bayes
 #from sklearn import preprocessing, model_selection
-from sklearn.preprocessing import StandardScaler
-from sklearn.decomposition import PCA
-from sklearn.model_selection import train_test_split
+
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from matplotlib.colors import Colormap
@@ -28,6 +26,10 @@ from itertools import product, islice, chain, repeat
 from datetime import datetime
 import socket
 
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.model_selection import train_test_split
+from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -36,7 +38,7 @@ from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import classification_report, confusion_matrix, auc, roc_auc_score, accuracy_score, roc_curve
-from sklearn.pipeline import Pipeline
+from sklearn.pipeline import Pipeline, FeatureUnion
 
 
 
@@ -127,7 +129,7 @@ def buildModelData2(gameDF, teamDF,
     a, b = train_test_split(gameDF, test_size = 0.5, random_state = 1127)
     
     # Assign win & loss boolean
-    a['winnerA'], b['winnerA'] = 1, 0    
+    a.loc[:, 'winnerA'], b.loc[:, 'winnerA'] = 1, 0    
     
     # Rename columns with new labels
     a.rename(columns = {'WTeamID':'ATeamID', 'LTeamID':'BTeamID'},
@@ -208,12 +210,18 @@ def modelAnalysisPipeline(modelPipe, data = [],
                           gridSearch = False,
                           paramGrid = None):
 
+    '''Perform model pipeline and perfrom grid search if necessary.
+    
+        Return dictionary with Pipeline, predictions, probabilities,
+        test data, train data, rocCurve, auc, and accuracy'''
 
+    # Remove all non numeric columns from model
     if indCols == None:
         indCols = filter(lambda col: ((data[col].dtype.hasobject == False) 
                                         & (col != targetCol)), 
                          data.columns.tolist())
     
+    # Assign test/train datasets if defined, otherwise perform test/train split
     if len(testTrainDataList) == 4:                                           
         xTrain, xTest, yTrain, yTest = testTrainDataList
     
@@ -221,12 +229,14 @@ def modelAnalysisPipeline(modelPipe, data = [],
         xTrain, xTest, yTrain, yTest = train_test_split(data[indCols], 
                                                         data[targetCol],
                                                         test_size = testTrainSplit)
-    
+    # Perform grid search if necessary
     if gridSearch == True:
         modelPipe = GridSearchCV(modelPipe, paramGrid)
     
-    
+    # Fit pipleine
     modelPipe.fit(xTrain, yTrain)
+    
+    # Perform predictions and return model results
     predictions = modelPipe.predict(xTest)
     predProbs = np.max(modelPipe.predict_proba(xTest), axis = 1)
     auc = roc_auc_score(yTest, predictions)
@@ -685,19 +695,22 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
 
 
 
-# Set working directory
-wds = {'WaterBug' : 'C:\\Users\\brett\\Documents\\march_madness_ml',
-             'WHQPC-L60102' : 'C:\\Users\\u00bec7\\Desktop\\personal\\march_madness_ml',
-             'raspberrypi' : '/home/pi/Documents/march_madness_ml'
-             }
 
-
-os.chdir(wds.get(socket.gethostname()))
         
 
 #==============================================================================
 # LOAD DATA 
 #==============================================================================
+
+# Working Directory Dictionary
+wds = {'WaterBug' : 'C:\\Users\\brett\\Documents\\march_madness_ml',
+             'WHQPC-L60102' : 'C:\\Users\\u00bec7\\Desktop\\personal\\march_madness_ml',
+             'raspberrypi' : '/home/pi/Documents/march_madness_ml'
+             }
+
+# Set working directory
+os.chdir(wds.get(socket.gethostname()))
+
 
 # Read data
 dataFiles = os.listdir('datasets\\2019')
@@ -740,11 +753,6 @@ dataDict = {k : pd.read_csv('datasets\\2019\\{}'.format(data)) for k, data in zi
 
 # Lists of games data (C =C ompact, D = Detailed)
 gamesData = ['tGamesC', 'tGamesD', 'rGamesC', 'rGamesD']
-
-
-#for df in ['rGamesC', 'rGamesD']:
-#    dataDict[df].info()
-#    dataDict[df].describe()
 
 
 
@@ -1271,12 +1279,43 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     # Configure parameter grid for pipeline
     numIndCols = len(dataDict[df + 'modelData'][indCols2].columns)
-    numPCASplits = 4
+    numPCASplits = 2
     
     
-    paramGrid = [{'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-                    # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                    'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+#    paramGrid = [{'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+#                   'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+#                             RandomForestClassifier(random_state = 1127,
+#                                                             n_estimators = 100,
+#                                                             n_jobs = -1,
+#                                                             verbose = 0)],
+#                    'mdl__min_samples_split' : map(lambda c: c/20, range(1, 5)),
+#                    'mdl__min_samples_leaf' : xrange(2, 10, 4)
+#                    
+#                    },
+#                    
+#                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+#                  'mdl' : [LogisticRegression(random_state = 1127)],
+#                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
+#                    },
+#                    
+#                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+#                 'mdl' : [SVC(probability = True)],
+#                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
+#                    'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
+#                    },
+#                    
+#                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
+#                 'mdl' : [KNeighborsClassifier()],
+#                    'mdl__n_neighbors' : range(3, 10, 2)
+#                    
+#                    }]
+  
+    fReduce = FeatureUnion([('pca', PCA()), ('kBest', SelectKBest(k = 1))])
+
+    
+    paramGrid = [{'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                  'fReduce__kBest__k' : range(3,7,2),
+                  'mdl' : [DecisionTreeClassifier(random_state = 1127), 
                              RandomForestClassifier(random_state = 1127,
                                                              n_estimators = 100,
                                                              n_jobs = -1,
@@ -1286,29 +1325,30 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                     
                     },
                     
-                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-                # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                    'mdl' : [LogisticRegression(random_state = 1127)],
+                {'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                  'fReduce__kBest__k' : range(3,7,2),
+                  'mdl' : [LogisticRegression(random_state = 1127)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
                     },
                     
-                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-                # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                    'mdl' : [SVC(probability = True)],
+                {'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                  'fReduce__kBest__k' : range(3,7,2),
+                  'mdl' : [SVC(probability = True)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
                     'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
                     },
                     
-                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-                 # 'fReduce__n_components' : range(3, len(dataDict[df + 'modelData'][indCols2].columns), len(dataDict[df + 'modelData'][indCols2].columns) // 4),
-                    'mdl' : [KNeighborsClassifier()],
-                    'mdl__n_neighbors' : range(3, 10, 2)
+                {'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                 'fReduce__kBest__k' : range(3,7,2),
+                 'mdl' : [KNeighborsClassifier()],
+                 'mdl__n_neighbors' : range(3, 10, 2)
                     
                     }]
     
     # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
     pipe = Pipeline([('sScale', StandardScaler()), 
-                     ('fReduce', PCA(n_components = 10)),
+                     ('fReduce', fReduce),
+                     # ('fReduce', PCA(n_components = 10)),
                      ('mdl', LogisticRegression(random_state = 1127))])
     
     
@@ -1370,7 +1410,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     # Plot Results
     fig, ax = plt.subplots(len(gsPlotCols))
-    plt.suptitle('Grid Search Results by Model Type', fontsize = 36)
+    plt.suptitle('Grid Search Results by Model Type {}'.format(df), fontsize = 24)
     
     swPlot = True
     
@@ -1384,15 +1424,15 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                           size = 6)
     
         #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-        ax[i].set_ylabel(col, fontsize = 24)
+        ax[i].set_ylabel(col, fontsize = 12)
     
         ax[i].grid()      
            
         if i == len(gsPlotCols) - 1:
-            ax[i].set_xlabel('Model Type', fontsize = 24)
-            ax[i].tick_params(labelsize = 20)
+            ax[i].set_xlabel('Model Type', fontsize = 12)
+            ax[i].tick_params(labelsize = 12)
         else:
-            ax[i].tick_params(axis = 'y', labelsize = 20)
+            ax[i].tick_params(axis = 'y', labelsize = 12)
             ax[i].tick_params(axis = 'x', which = 'both', 
                               top = 'off', bottom = 'off', 
                               labelbottom = 'off')
@@ -1448,10 +1488,8 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
 
 
 
-
-
 plt.figure()
-sns.lmplot(x = 'param_fReduce__n_components', 
+sns.lmplot(x = 'param_fReduce', 
            y = 'mean_test_score', 
            data=modelDict['tGamesC']['gridResults'])
            
