@@ -472,6 +472,11 @@ def generateGameMatchupStats2(gameDF, teamDF,
         
         TeamDF should have index set to mergeFields.'''
     
+    # Error handling for if Season not in mergeFields
+    if 'Season' not in gameDF.columns.tolist():
+        extraMergeFields = []
+    
+    
     for x in [(teamID1, label1), (teamID2, label2)]:
         teamID, teamLabel = x[0], x[1]        
         mergeFields = extraMergeFields + [teamID]
@@ -552,10 +557,17 @@ def genGameMatchupswSeedStats(baseCols,
 
 
     # More robust method for getting seedRank matchups incase returnStatCols = False
-    # Get seedRank for TeamID1        
+    # Get seedRank for TeamID1      
+    
+    # Error handling for 'Season' in merging fields
+    if 'Season' in gameDF.columns.tolist():
+        leftMergeSeason = ['Season']
+    else:
+        leftMergeSeason = []
+    
     seedStatsInput = gameDF[baseCols].merge(pd.DataFrame(teamDF['seedRank']),
                                             how = 'left', 
-                                            left_on = ['Season', teamID1],
+                                            left_on = leftMergeSeason + [teamID1],
                                             right_index = True)
     
     #seedStatsInput.reset_index(inplace = True)                                        
@@ -565,7 +577,7 @@ def genGameMatchupswSeedStats(baseCols,
      # Get seedRank for teamID2
     seedStatsInput = seedStatsInput.merge(pd.DataFrame(teamDF['seedRank']),
                                             how = 'left', 
-                                            left_on = ['Season', teamID2],
+                                            left_on = leftMergeSeason + [teamID2],
                                             right_index = True)   
 
     #seedStatsInput.reset_index(inplace = True) 
@@ -603,24 +615,33 @@ def genGameMatchupswSeedStats(baseCols,
 
 
 
-def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
+def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, 
+                        seedDF = pd.DataFrame(), 
+                        includeSeedStats = True, yr = 2018):
+    
+    # Create copies of DataFrames
+    tSeeds, tSlots, teamDF = tSeeds.copy(), tSlots.copy(), teamDF.copy()
     
     if 'Season' in tSeeds.columns.tolist():
         tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
+        #tSeeds = tSeeds.drop('Season', inplace = True, axis = 1)
     else: tSeeds = tSeeds[['Seed', 'TeamID']]
     
     if 'Season' in tSlots.columns.tolist():
-        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
-    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
+        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']].copy()
+        #tSlots = tSlots.drop('Season', inplace = True, axis = 1)
+    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']].copy()  
     
-    if 'Season' in teamDF.columns.tolist():
-        teamDF = teamDF[teamDF['Season'] == yr]
-        teamDF.drop('Season', inplace = True, axis = 1)
+    if 'Season' in teamDF.index.names:
+        teamDF = teamDF[teamDF.index.get_level_values('Season') == 2018]
+        teamDF.reset_index('Season', inplace = True)
+        teamDF.drop('Season', axis = 1, inplace = True)
+
 
     seedDict = dict(tSeeds.values.tolist())
     resultProbDict = {}
     
-    tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
+    tSlots.loc[:,'rndWinner'], tSlots.loc[:,'winProb'] = 'x', 0
     
     
     # Loop through rounds making predictions
@@ -637,17 +658,33 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
         
         
         # Generate matchup data for modeling
-        slotMatchUps2 = generateGameMatchupStats(gameDF = slotMatchUps, 
-                                                 teamDF = teamDF, 
-                                                teamID1='StrongTeam', 
-                                                teamID2 = 'WeakTeam',
-                                                label1 = 'A',
-                                                label2 = 'B',
-                                                extraMergeFields=[],
-                                                createMatchupFields=True,
-                                                deltaFields=['seedRank', 'OrdinalRank'], 
-                                                matchupFields=[('confMatchup', 'ConfAbbrev'), 
-                                                               ('seedRankMatchup', 'seedRank')])
+        if includeSeedStats == False:
+            slotMatchUps2 = generateGameMatchupStats2(gameDF = slotMatchUps, 
+                                                     teamDF = teamDF, 
+                                                    teamID1='StrongTeam', 
+                                                    teamID2 = 'WeakTeam',
+                                                    label1 = 'A',
+                                                    label2 = 'B',
+                                                    calculateDeltas = True,
+                                                    returnStatCols = False,
+                                                    createMatchupFields = True)
+        
+        else:
+  
+    
+    
+            slotMatchUps2 = genGameMatchupswSeedStats(baseCols = ['StrongTeam', 'WeakTeam'],
+                                                       gameDF = slotMatchUps,
+                                                       teamDF = teamDF,
+                                                       seedDF = seedDF,
+                                                       teamID1 = 'StrongTeam', 
+                                                       teamID2 = 'WeakTeam',
+                                                       label1 = 'A', 
+                                                       label2 = 'B',
+                                                       calculateDeltas = True,
+                                                       returnStatCols = False,
+                                                       createMatchupFields = True)
+    
         # Predict winner and winning probability
         slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
         slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
@@ -670,9 +707,9 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
         
     # Map team name and original seed to results
     for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
-        tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
+        tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamNameSpelling']),
                               left_on = team, right_index = True)
-        tSlots.rename(columns = {'TeamName' : team + 'Name'}, inplace = True)
+        tSlots.rename(columns = {'TeamNameSpelling' : team + 'Name'}, inplace = True)
                     
         tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
                               left_on = team, right_index = True)
@@ -999,7 +1036,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                                     returnStatCols = False,
                                                                     createMatchupFields = True)
     
-    # Build initial model dataset                                                                
+    # Build initial model dataset (reorder wins and loss cols on 50% of games)                                                           
     dataDict[df + 'modelData'] = buildModelData2(gameDF = dataDict[df][['Season', 'DayNum', 'WTeamID', 'LTeamID']],
                                                  teamDF = dataDict[regDF + 'TeamSeasonStats'],
                                                  calculateMatchupStats = False
@@ -1658,6 +1695,52 @@ tPredict, tPredictClean = tourneyPredictions(model = model,
                           yr = 2018)
 
 
+### DEV 3/17/19 ###
+
+df = 'tGamesC'
+modelBestsDict = modelDict['tGamesC']['bests'].to_dict(orient='index')
+
+modelTrainInput = modelDict['tGamesC']['analysis']['xTrain']
+modelTrainTarget = modelDict['tGamesC']['analysis']['yTrain']
+
+# Modeling columns: All numeric columns (same code as used in Grid Search)
+indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                            & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
+                dataDict[df + 'modelData'].columns.tolist())
+
+
+for mdl, mdlDict in modelBestsDict.iteritems():   
+    
+    pipe = Pipeline([('sScale', StandardScaler()), 
+                         ('fReduce', fReduce),
+                         # ('fReduce', PCA(n_components = 10)),
+                         ('mdl', mdlDict['param_mdl'])])
+    
+    pipe.set_params(**mdlDict['params'])
+    pipe.fit(modelTrainInput, modelTrainTarget)
+
+    
+    teamDFname = 'rGamesCTeamSeasonStats'  
+    
+    mdlDict[mdl]['bestPredictions'], mdlDict[mdl]['bestPredictionsClean'] = tourneyPredictions2(model = pipe, 
+                          teamDF = dataDict[teamDFname],
+                          tSeeds = dataDict['tSeeds'],
+                          tSlots = dataDict['tSlots'],
+                          seedDF = dataDict[df + 'SeedStats'],
+                          mdlCols = indCols2,
+                          yr = 2018)
+    
+    fName = '_'.join(['2018_model_results',
+                      mdl,
+                      df, 
+                      datetime.strftime(datetime.now(), '%Y_%m_%d')])
+
+    mdlDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
+    
+
+### END DEV 3/17/19 ###
+
+
 for mdl, df in bestModelType[['model', 'df']].values.tolist():   
     mdlCols = filter(lambda col: col not in mdlExcludeCols, 
                  dataDict[df].columns.tolist()) 
@@ -1724,7 +1807,7 @@ def tourneyPredictions(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
         
         
         # Generate matchup data for modeling
-        slotMatchUps2 = generateGameMatchupStats(gameDF = slotMatchUps, 
+        slotMatchUps2 = generateGameMatchupStats2(gameDF = slotMatchUps, 
                                                  teamDF = teamDF, 
                                                 teamID1='StrongTeam', 
                                                 teamID2 = 'WeakTeam',
