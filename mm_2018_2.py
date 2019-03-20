@@ -26,10 +26,12 @@ from itertools import product, islice, chain, repeat
 from datetime import datetime
 import socket
 
+
+from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
-from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2
+from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2, RFECV
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
@@ -195,10 +197,10 @@ def modelAnalysis(model, data = [],
     model.fit(xTrain, yTrain)
     predictions = model.predict(xTest)
     predProbs = np.max(model.predict_proba(xTest), axis = 1)
-    auc = roc_auc_score(yTest, predictions)
+    aucMetric = roc_auc_score(yTest, predictions)
     accuracy = accuracy_score(yTest, predictions)
     
-    return predictions, predProbs, auc, accuracy
+    return predictions, predProbs, aucMetric, accuracy
 
 
 
@@ -208,7 +210,8 @@ def modelAnalysisPipeline(modelPipe, data = [],
                           testTrainDataList = [], 
                           testTrainSplit = 0.2,
                           gridSearch = False,
-                          paramGrid = None):
+                          paramGrid = None,
+                          scoring = None):
 
     '''Perform model pipeline and perfrom grid search if necessary.
     
@@ -231,7 +234,7 @@ def modelAnalysisPipeline(modelPipe, data = [],
                                                         test_size = testTrainSplit)
     # Perform grid search if necessary
     if gridSearch == True:
-        modelPipe = GridSearchCV(modelPipe, paramGrid)
+        modelPipe = GridSearchCV(modelPipe, paramGrid, scoring = scoring)
     
     # Fit pipleine
     modelPipe.fit(xTrain, yTrain)
@@ -239,7 +242,7 @@ def modelAnalysisPipeline(modelPipe, data = [],
     # Perform predictions and return model results
     predictions = modelPipe.predict(xTest)
     predProbs = np.max(modelPipe.predict_proba(xTest), axis = 1)
-    auc = roc_auc_score(yTest, predictions)
+    aucMetric = roc_auc_score(yTest, predictions)
     accuracy = accuracy_score(yTest, predictions)
     rocCurve = roc_curve(yTest, modelPipe.predict_proba(xTest)[:,1])
     
@@ -250,7 +253,7 @@ def modelAnalysisPipeline(modelPipe, data = [],
             'xTrain' : xTrain, 'yTrain' : yTrain,
             'xTest' : xTest, 'yTest' : yTest,
             'rocCurve' : rocCurve,
-            'auc' : auc, 'accuracy' : accuracy}
+            'auc' : aucMetric, 'accuracy' : accuracy}
 
 
 
@@ -617,15 +620,15 @@ def genGameMatchupswSeedStats(baseCols,
 
 def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols, 
                         seedDF = pd.DataFrame(), 
-                        includeSeedStats = True, yr = 2018, returnStatCols = False):
+                        includeSeedStats = True, yr = 2019, returnStatCols = False):
     
     # Create copies of DataFrames
     tSeeds, tSlots, teamDF = tSeeds.copy(), tSlots.copy(), teamDF.copy()
     
     if 'Season' in tSeeds.columns.tolist():
-        tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
+        tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'seedRank', 'TeamID']]
         #tSeeds = tSeeds.drop('Season', inplace = True, axis = 1)
-    else: tSeeds = tSeeds[['Seed', 'TeamID']]
+    else: tSeeds = tSeeds[['Seed', 'seedRank', 'TeamID']]
     
     if 'Season' in tSlots.columns.tolist():
         tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']].copy()
@@ -638,11 +641,13 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols,
         teamDF.drop('Season', axis = 1, inplace = True)
 
 
-    seedDict = dict(tSeeds.values.tolist())
+    seedDict = dict(tSeeds[['Seed', 'TeamID']].values.tolist())
     resultProbDict = {}
     
     tSlots.loc[:,'rndWinner'], tSlots.loc[:,'winProb'] = 'x', 0
     
+    
+    matchupData = pd.DataFrame()
     
     # Loop through rounds making predictions
     while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
@@ -685,6 +690,10 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols,
                                                        returnStatCols = returnStatCols,
                                                        createMatchupFields = True)
     
+        
+        # Store matchup data
+        matchupData = pd.concat([matchupData, slotMatchUps2], axis = 0)
+        
         # Predict winner and winning probability
         slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
         slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
@@ -714,15 +723,21 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols,
         tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
                               left_on = team, right_index = True)
     
-        tSlots.rename(columns = {'Seed' : team + 'Seed'}, inplace = True)
+        tSlots.rename(columns = {'Seed' : team + 'Seed',
+                                 'seedRank' : team + 'seedRank'}, inplace = True)
+    
+        # Combine rank and name
+        tSlots.loc[:, '{}NameAndRank'.format(team)] = map(lambda t: '{:.0f} {}'.format(t[0], t[1]),
+                                                           tSlots[['{}seedRank'.format(team),
+                                                                   '{}Name'.format(team)]].values.tolist())
     
     # Order & clean results 
     tSlots = tSlots.sort_values('Slot')
     tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
-                          'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
+                          'StrongTeamNameAndRank', 'WeakTeamNameAndRank', 'rndWinnerNameAndRank', 
                           'winProb']]
 
-    return tSlots, tSlotsClean
+    return tSlots, tSlotsClean, matchupData
 
 
 #==============================================================================
@@ -1033,7 +1048,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                                     label1 = 'W', 
                                                                     label2 = 'L',
                                                                     calculateDeltas = True,
-                                                                    returnStatCols = True,
+                                                                    returnStatCols = False,
                                                                     createMatchupFields = True)
     
     # Build initial model dataset (reorder wins and loss cols on 50% of games)                                                           
@@ -1052,7 +1067,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                            label1 = 'A', 
                                                            label2 = 'B',
                                                            calculateDeltas = True,
-                                                           returnStatCols = True,
+                                                           returnStatCols = False,
                                                            createMatchupFields = True)
     
     # Pull out winnerA column from index
@@ -1291,9 +1306,13 @@ for df in gamesStatsDFs:
 
 
 
+
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
+
+from sklearn.feature_selection import RFE, SelectFromModel
+from sklearn.svm import LinearSVC
 
 modelDict = {}
 
@@ -1316,44 +1335,21 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     # Configure parameter grid for pipeline
     numIndCols = len(dataDict[df + 'modelData'][indCols2].columns)
-    numPCASplits = 2
+    numPCASplits = 4
     
     
-#    paramGrid = [{'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-#                   'mdl' : [DecisionTreeClassifier(random_state = 1127), 
-#                             RandomForestClassifier(random_state = 1127,
-#                                                             n_estimators = 100,
-#                                                             n_jobs = -1,
-#                                                             verbose = 0)],
-#                    'mdl__min_samples_split' : map(lambda c: c/20, range(1, 5)),
-#                    'mdl__min_samples_leaf' : xrange(2, 10, 4)
-#                    
-#                    },
-#                    
-#                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-#                  'mdl' : [LogisticRegression(random_state = 1127)],
-#                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
-#                    },
-#                    
-#                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-#                 'mdl' : [SVC(probability = True)],
-#                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
-#                    'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
-#                    },
-#                    
-#                {'fReduce' : [None] + map(lambda i: PCA(i), range(3, numIndCols, numIndCols // numPCASplits)),
-#                 'mdl' : [KNeighborsClassifier()],
-#                    'mdl__n_neighbors' : range(3, 10, 2)
-#                    
-#                    }]
   
     #fReduce = FeatureUnion([('pca', PCA()), ('kBest', SelectKBest(k = 1))])
     fReduce = FeatureUnion([('pca', PCA()), 
                            # ('kBest', SelectKBest(k = 1))
+                           # ('rfe', RFE(LogisticRegression(random_state = 1127)))
                             ])
     
-    paramGrid = [{'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+    fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
+    
+    paramGrid = [{#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
                   #'fReduce__kBest__k' : range(3,7,2),
+                  'fReduce__n_features_to_select' : range(3, 1 + numIndCols // 2),
                   'mdl' : [DecisionTreeClassifier(random_state = 1127), 
                              RandomForestClassifier(random_state = 1127,
                                                              n_estimators = 100,
@@ -1364,20 +1360,23 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                     
                     },
                     
-                {'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                 'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
                   #'fReduce__kBest__k' : range(3,7,2),
                   'mdl' : [LogisticRegression(random_state = 1127)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
                     },
                     
-                {'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                 'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
                  # 'fReduce__kBest__k' : range(3,7,2),
                   'mdl' : [SVC(probability = True)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
                     'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
                     },
                     
-                {'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
+                 'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
                  #'fReduce__kBest__k' : range(3,7,2),
                  'mdl' : [KNeighborsClassifier()],
                  'mdl__n_neighbors' : range(3, 10, 2)
@@ -1397,12 +1396,13 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     # Run grid search on modeling pipeline
     timer()
     modelDict[df]['analysis'] = modelAnalysisPipeline(modelPipe = pipe,
-                          data = dataDict[df + 'modelData'],
+                          data = dataDict[df + 'modelData'][dataDict[df + 'modelData'].index.get_level_values('Season') >= 2003],
                           indCols = indCols2,
                           targetCol = 'winnerA',
                           testTrainSplit = 0.2,
                           gridSearch=True,
-                          paramGrid=paramGrid)
+                          paramGrid=paramGrid,
+                          scoring = 'roc_auc')
     modelDict[df]['calcTime'] = timer()
     
     
@@ -1541,7 +1541,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
 yr = 2019
 
 for df in ('tGamesC', 
-           #'tGamesD'
+           # 'tGamesD'
            ):
    
     allModelResults = pd.DataFrame()
@@ -1560,26 +1560,21 @@ for df in ('tGamesC',
     
     for mdl, mdlDict in modelBestsDict.iteritems():   
         
-        pipe = Pipeline([('sScale', StandardScaler()), 
-                             ('fReduce', fReduce),
-                             # ('fReduce', PCA(n_components = 10)),
-                             ('mdl', mdlDict['param_mdl'])])
+        pipe = modelDict[df]['analysis']['pipe'].estimator
         
         pipe.set_params(**mdlDict['params'])
         pipe.fit(modelDict[df]['analysis']['xTrain'], 
                  modelDict[df]['analysis']['yTrain'])
     
         
-        teamDFname = 'rGamesCTeamSeasonStats'  
-        
-        modelBestsDict[mdl]['bestPredictions'], modelBestsDict[mdl]['bestPredictionsClean'] = tourneyPredictions2(model = pipe, 
+        modelBestsDict[mdl]['bestPredictions'], modelBestsDict[mdl]['bestPredictionsClean'], modelBestsDict[mdl]['matchups'] = tourneyPredictions2(model = pipe, 
                               teamDF = dataDict[teamDFname],
                               tSeeds = dataDict['tSeeds'],
                               tSlots = dataDict['tSlots'],
                               seedDF = dataDict[df + 'SeedStats'],
                               mdlCols = indCols2,
                               yr = yr,
-                              returnStatCols = True)
+                              returnStatCols = False)
         
         # Add columns for dataframe and model name
         modelBestsDict[mdl]['bestPredictionsClean'].loc[:, 'df'] = df
@@ -1601,320 +1596,12 @@ for df in ('tGamesC',
         modelBestsDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
    
 
-    allModelResults.to_csv('{}_all_model_results_{}_{}'.format(yr, df, datetime.strftime(datetime.now(), '%Y_%m_%d'))) 
+    allModelResults.to_csv('{}_all_model_results_{}_{}.csv'.format(yr, df, datetime.strftime(datetime.now(), '%Y_%m_%d'))) 
 
 # ============================================================================
 # ================= END TOURNAMENT PRECITIONS ================================
 # ============================================================================
 
-
-
-
-
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-# # # # # # 
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-#==============================================================================
-
-
-plt.figure()
-sns.lmplot(x = 'param_fReduce', 
-           y = 'mean_test_score', 
-           data=modelDict['tGamesC']['gridResults'])
-           
- 
-plt.figure()
-
-sns.factorplot(x = 'param_fReduce__n_components', 
-           y = 'mean_test_score', 
-           hue = 'mdl',
-           data=modelDict['tGamesD']['gridResults'])
-   
-
-plt.scatter(modelDict['tGamesC']['gridResults']['param_fReduce__n_components'],
-            modelDict['tGamesC']['gridResults']['mean_test_score'],     
-            modelDict['tGamesC'].keys()
-            )
-
-
-
-
-
-
-
-
-
-
-
-
-mdlSum.append((df, mdl, mdlDict[mdl][df]['auc'], mdlDict[mdl][df]['accuracy'], timer()))
-        
-        
-mdlSum = pd.DataFrame(mdlSum, columns = ['df', 'model', 'auc', 'accuracy', 'calcTime'])       
- 
-mdlSum = mdlSum.sort_values(by = 'accuracy', ascending = False) 
- 
-bestModel = mdlSum[mdlSum['accuracy'] == mdlSum['accuracy'].max()].values.tolist()[0]    
-
-# Get best model for each model type
-bestModelType = mdlSum.groupby('model')['accuracy'].max()
-bestModelType = mdlSum.merge(pd.DataFrame(bestModelType, 
-                          columns = ['maxAccuracy']), 
-            left_on = 'model', 
-            right_index = True)
-bestModelType = bestModelType[bestModelType['accuracy'] == bestModelType['maxAccuracy']]
-
-
-
- 
-#==============================================================================
-# ### 2018 PREDICTIONS ### 
-#==============================================================================
- 
-mdlCols = filter(lambda col: col not in mdlExcludeCols, 
-                 dataDict[bestModel[0]].columns.tolist())
-
-model = mdlDict[bestModel[1]][bestModel[0]]['model']
-
-yr = 2018
-
-tSeeds = dataDict['tSeeds'][dataDict['tSeeds']['Season'] == yr][['Seed', 'TeamID']]
-tSlots = dataDict['tSlots'][dataDict['tSlots']['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
-seedDict = dict(tSeeds.values.tolist())
-resultProbDict = {}
-
-
-# Get correct dataframe with team stats for modeling
-teamDF = 'all' + bestModel[0][6:bestModel[0].find('Model')] 
-teamDF = dataDict[teamDF][dataDict[teamDF]['Season'] == yr]
-teamDF.drop('Season', inplace=True, axis = 1)
-
-
-
-
-tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
-
-
-while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
-    
-    for seed in ['Strong', 'Weak']:
-        tSlots[seed + 'Team'] = tSlots[seed + 'Seed'].map(lambda t: seedDict.get(t, 'x'))
-    
-    # Need to error handle for all numeric indexes (last round)    
-    slotMatchUps = tSlots[((tSlots['StrongTeam'].map(str) != 'x')
-                             & (tSlots['WeakTeam'].map(str) != 'x')
-                             & (tSlots['winProb'] == 0))][['Slot', 'StrongTeam', 'WeakTeam']]
-    
-    
-    slotMatchUps2 = generateGameMatchupStats(gameDF = slotMatchUps, 
-                                             teamDF = teamDF, 
-                                            teamID1='StrongTeam', 
-                                            teamID2 = 'WeakTeam',
-                                            label1 = 'A',
-                                            label2 = 'B',
-                                            extraMergeFields=[],
-                                            createMatchupFields=True,
-                                            deltaFields=['seedRank', 'OrdinalRank'], 
-                                            matchupFields=[('confMatchup', 'ConfAbbrev'), 
-                                                           ('seedRankMatchup', 'seedRank')])
-    
-    slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
-    slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
-    
-    # Assign TeamID to roundWinner (1 = StrongSeed/Team, 0 = WeakTeam/Seed)
-    slotMatchUps['rndWinner'] = slotMatchUps.apply(lambda game: game['StrongTeam'] if game['rndWinner'] == 1 else game['WeakTeam'], 
-                                                    axis = 1)
-    
-    # Convert results to dictionary and update base dictionaries with new results
-    winnerDict = slotMatchUps.set_index('Slot').to_dict()
-    seedDict.update(winnerDict['rndWinner'])
-    resultProbDict.update(winnerDict['winProb'])
-    
-    
-    #tSlots['rndWinner'] = tSlots.apply(lambda game: winnerDict['rndWinner'].get(game, tSlots['rndWinner']), axis = 1)
-    for team in [('rndWinner', 'Slot'), ('StrongTeam', 'StrongSeed'), ('WeakTeam', 'WeakSeed')]:
-        tSlots[team[0]] = tSlots[team[1]].map(lambda result: seedDict.get(result, 'x'))
-    tSlots['winProb'] = tSlots['Slot'].map(lambda result: resultProbDict.get(result, 0))
-    
-    
-# Map team name and original seed to results
-for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
-    tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
-                          left_on = team, right_index = True)
-    tSlots.rename(columns = {'TeamName' : team + 'Name'}, inplace = True)
-                
-    tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
-                          left_on = team, right_index = True)
-
-    tSlots.rename(columns = {'Seed' : team + 'Seed'}, inplace = True)
-
-# Order Results
-tSlots = tSlots.sort_values('Slot')
-tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
-                      'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
-                      'winProb']]
-
-
-mdlCols = filter(lambda col: col not in mdlExcludeCols, 
-                 dataDict[bestModel[0]].columns.tolist())
-
-model = mdlDict[bestModel[1]][bestModel[0]]['model']
-
-yr = 2018
-
-# Get correct dataframe with team stats for modeling
-teamDFname = 'all' + bestModel[0][6:bestModel[0].find('Model')] 
-teamDF = dataDict[teamDF][dataDict[teamDF]['Season'] == yr]
-tSeeds = dataDict['tSeeds'][dataDict['tSeeds']['Season'] == yr][['Seed', 'TeamID']]
-tSlots = dataDict['tSlots'][dataDict['tSlots']['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
-
-
-tPredict, tPredictClean = tourneyPredictions(model = model, 
-                          teamDF = dataDict[teamDFname],
-                          tSeeds = dataDict['tSeeds'],
-                          tSlots = dataDict['tSlots'],
-                          mdlCols = mdlCols,
-                          yr = 2018)
-
-
-
-
-
-for mdl, df in bestModelType[['model', 'df']].values.tolist():   
-    mdlCols = filter(lambda col: col not in mdlExcludeCols, 
-                 dataDict[df].columns.tolist()) 
-    
-    teamDFname = 'all' + df[6:df.find('Model')]    
-    
-    mdlDict[mdl]['bestPredictions'], mdlDict[mdl]['bestPredictionsClean'] = tourneyPredictions(model = mdlDict[mdl]['model'], 
-                          teamDF = dataDict[teamDFname],
-                          tSeeds = dataDict['tSeeds'],
-                          tSlots = dataDict['tSlots'],
-                          mdlCols = mdlCols,
-                          yr = 2018)
-    
-    fName = '_'.join(['2018_model_results',
-                      mdl,
-                      df, 
-                      datetime.strftime(datetime.now(), '%Y_%m_%d')])
-
-    mdlDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
-    
-
-
-tOldResults = generateOldTourneyResults(tSeeds = dataDict['tSeeds'],
-                                        tSlots = dataDict['tSlots'],
-                                        tGames = dataDict['tGamesC'],
-                                        yr = 2017)
-
-tSeeds, tSlots, tGames, yr = dataDict['tSeeds'], dataDict['tSlots'], dataDict['tGamesC'], 2017
-
-
-
-
-def tourneyPredictions(model, teamDF, tSeeds, tSlots, mdlCols, yr = 2018):
-    
-    if 'Season' in tSeeds.columns.tolist():
-        tSeeds = tSeeds[tSeeds['Season'] == yr][['Seed', 'TeamID']]
-    else: tSeeds = tSeeds[['Seed', 'TeamID']]
-    
-    if 'Season' in tSlots.columns.tolist():
-        tSlots = tSlots[tSlots['Season'] == yr][['Slot', 'StrongSeed', 'WeakSeed']]
-    else: tSlots = tSlots[['Slot', 'StrongSeed', 'WeakSeed']]    
-    
-    if 'Season' in teamDF.columns.tolist():
-        teamDF = teamDF[teamDF['Season'] == yr]
-        teamDF.drop('Season', inplace = True, axis = 1)
-
-    seedDict = dict(tSeeds.values.tolist())
-    resultProbDict = {}
-    
-    tSlots['rndWinner'], tSlots['winProb'] = 'x', 0
-    
-    
-    # Loop through rounds making predictions
-    while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
-        
-        # Match seeds to slot for matchups
-        for seed in ['Strong', 'Weak']:
-            tSlots[seed + 'Team'] = tSlots[seed + 'Seed'].map(lambda t: seedDict.get(t, 'x'))
-        
-        # Need to error handle for all numeric indexes (last round)    
-        slotMatchUps = tSlots[((tSlots['StrongTeam'].map(str) != 'x')
-                                 & (tSlots['WeakTeam'].map(str) != 'x')
-                                 & (tSlots['winProb'] == 0))][['Slot', 'StrongTeam', 'WeakTeam']]
-        
-        
-        # Generate matchup data for modeling
-        slotMatchUps2 = generateGameMatchupStats2(gameDF = slotMatchUps, 
-                                                 teamDF = teamDF, 
-                                                teamID1='StrongTeam', 
-                                                teamID2 = 'WeakTeam',
-                                                label1 = 'A',
-                                                label2 = 'B',
-                                                extraMergeFields=[],
-                                                createMatchupFields=True,
-                                                deltaFields=['seedRank', 'OrdinalRank'], 
-                                                matchupFields=[('confMatchup', 'ConfAbbrev'), 
-                                                               ('seedRankMatchup', 'seedRank')])
-        # Predict winner and winning probability
-        slotMatchUps['rndWinner'] = model.predict(slotMatchUps2[mdlCols])
-        slotMatchUps['winProb'] = np.max(model.predict_proba(slotMatchUps2[mdlCols]), axis = 1)
-        
-        # Assign TeamID to roundWinner (1 = StrongSeed/Team, 0 = WeakTeam/Seed)
-        slotMatchUps['rndWinner'] = slotMatchUps.apply(lambda game: game['StrongTeam'] if game['rndWinner'] == 1 else game['WeakTeam'], 
-                                                        axis = 1)
-        
-        # Convert results to dictionary and update base dictionaries with new results
-        winnerDict = slotMatchUps.set_index('Slot').to_dict()
-        seedDict.update(winnerDict['rndWinner'])
-        resultProbDict.update(winnerDict['winProb'])
-        
-        
-        # Update tSlots dataframe with winner results
-        for team in [('rndWinner', 'Slot'), ('StrongTeam', 'StrongSeed'), ('WeakTeam', 'WeakSeed')]:
-            tSlots[team[0]] = tSlots[team[1]].map(lambda result: seedDict.get(result, 'x'))
-        tSlots['winProb'] = tSlots['Slot'].map(lambda result: resultProbDict.get(result, 0))
-        
-        
-    # Map team name and original seed to results
-    for team in ['StrongTeam', 'WeakTeam', 'rndWinner']:
-        tSlots = tSlots.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
-                              left_on = team, right_index = True)
-        tSlots.rename(columns = {'TeamName' : team + 'Name'}, inplace = True)
-                    
-        tSlots = tSlots.merge(pd.DataFrame(tSeeds.set_index('TeamID')),
-                              left_on = team, right_index = True)
-    
-        tSlots.rename(columns = {'Seed' : team + 'Seed'}, inplace = True)
-    
-    # Order & clean results 
-    tSlots = tSlots.sort_values('Slot')
-    tSlotsClean = tSlots[['Slot', 'StrongTeamSeed', 'WeakTeamSeed', 'rndWinnerSeed', 
-                          'StrongTeamName', 'WeakTeamName', 'rndWinnerName', 
-                          'winProb']]
-
-    return tSlots, tSlotsClean
-
-
-
-
-
-fName = '_'.join(['2018_model_results',
-                  bestModel[0],
-                  bestModel[1], 
-                  datetime.strftime(datetime.now(), '%Y_%m_%d')])
-
-tPredictClean.to_csv(fName + '.csv', index = False, header = True)
 
 
 
