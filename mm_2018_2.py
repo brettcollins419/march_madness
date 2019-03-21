@@ -1048,7 +1048,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                                     label1 = 'W', 
                                                                     label2 = 'L',
                                                                     calculateDeltas = True,
-                                                                    returnStatCols = False,
+                                                                    returnStatCols = True,
                                                                     createMatchupFields = True)
     
     # Build initial model dataset (reorder wins and loss cols on 50% of games)                                                           
@@ -1067,7 +1067,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                            label1 = 'A', 
                                                            label2 = 'B',
                                                            calculateDeltas = True,
-                                                           returnStatCols = False,
+                                                           returnStatCols = True,
                                                            createMatchupFields = True)
     
     # Pull out winnerA column from index
@@ -1340,16 +1340,18 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
   
     #fReduce = FeatureUnion([('pca', PCA()), ('kBest', SelectKBest(k = 1))])
-    fReduce = FeatureUnion([('pca', PCA()), 
+    #fReduce = FeatureUnion([('pca', PCA()), 
                            # ('kBest', SelectKBest(k = 1))
                            # ('rfe', RFE(LogisticRegression(random_state = 1127)))
-                            ])
+    #                        ])
+   
+    #fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
+    fReduce = SelectKBest(k = 1)
     
-    fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
     
     paramGrid = [{#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                  #'fReduce__kBest__k' : range(3,7,2),
-                  'fReduce__n_features_to_select' : range(3, 1 + numIndCols // 2),
+                  'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
+                  #'fReduce__n_features_to_select' : range(3, 1 + numIndCols // 2),
                   'mdl' : [DecisionTreeClassifier(random_state = 1127), 
                              RandomForestClassifier(random_state = 1127,
                                                              n_estimators = 100,
@@ -1361,23 +1363,23 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                     },
                     
                 {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                 'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
-                  #'fReduce__kBest__k' : range(3,7,2),
+                 #'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
+                  'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
                   'mdl' : [LogisticRegression(random_state = 1127)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
                     },
                     
                 {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                 'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
-                 # 'fReduce__kBest__k' : range(3,7,2),
+                 #'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
+                 'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
                   'mdl' : [SVC(probability = True)],
                     'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
                     'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
                     },
                     
                 {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                 'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
-                 #'fReduce__kBest__k' : range(3,7,2),
+                 #'fReduce__n_features_to_select' : range(1, 1 +  numIndCols // 2),
+                 'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
                  'mdl' : [KNeighborsClassifier()],
                  'mdl__n_neighbors' : range(3, 10, 2)
                     
@@ -1385,6 +1387,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
     pipe = Pipeline([('sScale', StandardScaler()), 
+                     ('pca',  PCA(n_components = numIndCols // 2)),
                      ('fReduce', fReduce),
                      # ('fReduce', PCA(n_components = 10)),
                      ('mdl', LogisticRegression(random_state = 1127))])
@@ -1541,7 +1544,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
 yr = 2019
 
 for df in ('tGamesC', 
-           # 'tGamesD'
+           'tGamesD'
            ):
    
     allModelResults = pd.DataFrame()
@@ -1574,7 +1577,7 @@ for df in ('tGamesC',
                               seedDF = dataDict[df + 'SeedStats'],
                               mdlCols = indCols2,
                               yr = yr,
-                              returnStatCols = False)
+                              returnStatCols = True)
         
         # Add columns for dataframe and model name
         modelBestsDict[mdl]['bestPredictionsClean'].loc[:, 'df'] = df
@@ -1596,7 +1599,8 @@ for df in ('tGamesC',
         modelBestsDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
    
 
-    allModelResults.to_csv('{}_all_model_results_{}_{}.csv'.format(yr, df, datetime.strftime(datetime.now(), '%Y_%m_%d'))) 
+    allModelResults.to_csv('{}_all_model_results_{}_{}_2.csv'.format(yr, df, 
+                           datetime.strftime(datetime.now(), '%Y_%m_%d')), index = False) 
 
 # ============================================================================
 # ================= END TOURNAMENT PRECITIONS ================================
