@@ -33,7 +33,7 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2, RFECV
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
@@ -480,6 +480,9 @@ def generateGameMatchupStats2(gameDF, teamDF,
         extraMergeFields = []
     
     
+    # Set gameDF to only columns needed for indexing 
+    gameDF = gameDF[indexCols]
+    
     for x in [(teamID1, label1), (teamID2, label2)]:
         teamID, teamLabel = x[0], x[1]        
         mergeFields = extraMergeFields + [teamID]
@@ -496,7 +499,7 @@ def generateGameMatchupStats2(gameDF, teamDF,
     gameDF.set_index(indexCols, inplace = True)
 
     if calculateDeltas == True:
-        dfDelta = generateMatchupDeltas(gameDF, 
+        dfDelta = generateMatchupDeltas(df = gameDF, 
                                         label1 = label1, 
                                         label2 = label2,
                                         labelName = labelName,
@@ -537,6 +540,7 @@ def genGameMatchupswSeedStats(baseCols,
                               matchupFields = [('confMatchup', 'ConfAbbrev'), 
                                                ('seedRankMatchup', 'seedRank')]):
         
+    
     '''Call generateGameMatchupStats function for creating initial
         matchup using team statistics, then add statistics for each
         team based on their seed rank in the tournament.
@@ -1038,18 +1042,19 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     # Reference assocated regular season data
     regDF = 'r' + df[1:]    
 
-    # Create tournament matchups
-    dataDict[df + 'SeasonStatsMatchup'] = genGameMatchupswSeedStats(baseCols = ['Season', 'DayNum', 'WTeamID', 'LTeamID'],
+    # Create tournament matchups    
+    dataDict[df + 'SeasonStatsMatchup'] = generateGameMatchupStats2(indexCols = ['Season', 'DayNum', 'WTeamID', 'LTeamID'],
                                                                     gameDF = dataDict[df],
-                                                                    teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                                                    seedDF = dataDict[df + 'SeedStats'],
+                                                                    teamDF = dataDict[regDF + 'TeamSeasonStats'],                                                                 
                                                                     teamID1 = 'WTeamID', 
                                                                     teamID2 = 'LTeamID',
                                                                     label1 = 'W', 
                                                                     label2 = 'L',
                                                                     calculateDeltas = True,
                                                                     returnStatCols = True,
-                                                                    createMatchupFields = True)
+                                                                    createMatchupFields = True,
+                                                                    )
+      
     
     # Build initial model dataset (reorder wins and loss cols on 50% of games)                                                           
     dataDict[df + 'modelData'] = buildModelData2(gameDF = dataDict[df][['Season', 'DayNum', 'WTeamID', 'LTeamID']],
@@ -1058,10 +1063,9 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                     )
 
     # Create matchups from base model dataset
-    dataDict[df + 'modelData'] = genGameMatchupswSeedStats(baseCols = ['Season', 'DayNum', 'ATeamID', 'BTeamID', 'winnerA'],
+    dataDict[df + 'modelData'] = generateGameMatchupStats2(indexCols = ['Season', 'DayNum', 'ATeamID', 'BTeamID', 'winnerA'],
                                                            gameDF = dataDict[df + 'modelData'],
                                                            teamDF = dataDict[regDF + 'TeamSeasonStats'],
-                                                           seedDF = dataDict[df + 'SeedStats'],
                                                            teamID1 = 'ATeamID', 
                                                            teamID2 = 'BTeamID',
                                                            label1 = 'A', 
@@ -1087,9 +1091,11 @@ colsBase += ['confMatchup', 'seedRankMatchup']
 #==============================================================================
 # CREATE SUBSET OF REGULAR SEASON TEAM STATISTICS FOR TOURNAMENT TEAMS ONLY
 #==============================================================================
-for df in ['rGamesCTeamSeasonStats', 'rGamesDTeamSeasonStats']:
-    dataDict[df + 'Tourney'] = dataDict[df][dataDict[df]['seedRank'] <= 16]
-    colSumDict[df + 'Tourney'] = generateDataFrameColumnSummaries(dataDict[df + 'Tourney'], returnDF=True)
+#for df in ['rGamesCTeamSeasonStats', 'rGamesDTeamSeasonStats']:
+#    dataDict[df + 'Tourney'] = dataDict[df][dataDict[df]['seedRank'] <= 16]
+#    colSumDict[df + 'Tourney'] = generateDataFrameColumnSummaries(dataDict[df + 'Tourney'], returnDF=True)
+#
+
 
 
 #==============================================================================
@@ -1157,154 +1163,200 @@ del(corrColsTemp, x)
 #       develop contribution of each axis
 
 
-teamStatsDFs = filter(lambda dfName: len(re.findall('t.*TeamSeasonStats.*', dfName))>0, 
-                      dataDict.iterkeys())
-gamesStatsDFs = filter(lambda dfName: len(re.findall('t.*SeasonStatsMatchup.*', dfName))>0, 
-                       dataDict.iterkeys())
-gamesStatsDFs = filter(lambda dfName: dfName.endswith('Corr') != True, 
-                       gamesStatsDFs)
+performPCA = False
 
-labelFontSize = 20
-titleFontSize = 24
-tickFontSize = 16
-
-pcaDict = {}
-
-
-### PCA Analysis on Team season statistics
-
-pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID']
-
-for df in teamStatsDFs:
-
-    # Get columns for transformation using PCA
-    pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
-    pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
- 
-    pcaPipe = Pipeline([('sScale', StandardScaler()), 
-                        ('pca', PCA(n_components = len(pcaCols), 
-                                    random_state = 1127))])
-   
-    #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+if performPCA == True:
     
-    pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
-
-
-    fig, axs = plt.subplots(1, 2)
-    plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+    teamStatsDFs = filter(lambda dfName: len(re.findall('t.*TeamSeasonStats.*', dfName))>0, 
+                          dataDict.iterkeys())
+    gamesStatsDFs = filter(lambda dfName: len(re.findall('t.*SeasonStatsMatchup.*', dfName))>0, 
+                           dataDict.iterkeys())
+    gamesStatsDFs = filter(lambda dfName: dfName.endswith('Corr') != True, 
+                           gamesStatsDFs)
+    
+    labelFontSize = 20
+    titleFontSize = 24
+    tickFontSize = 16
+    
+    pcaDict = {}
     
     
-    # Determine how many labels to plot so that axis isn' cluttered
-    axisLabelFreq = len(pcaCols) // 20 + 1
-    xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
-    xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
+    ### PCA Analysis on Team season statistics
     
-    # Plot feature weights for each component
-    sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
-                square = False, 
-                cmap = 'coolwarm', 
-                ax=axs[0], 
-                #annot=True,
-                xticklabels = axisLabelFreq,
-                yticklabels = axisLabelFreq)
+    pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID']
     
-    # Add feature lables & format plot    
-    axs[0].set_xticklabels(xAxisLabels, 
-                           fontsize = tickFontSize,
-                           rotation = 90)
-    axs[0].tick_params(labelsize = tickFontSize)
-    axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
-    axs[0].set_xlabel('Feature', fontsize = labelFontSize)
-    axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+    for df in teamStatsDFs:
+    
+        # Get columns for transformation using PCA
+        pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+        pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
+     
+        pcaPipe = Pipeline([('sScale', StandardScaler()), 
+                            ('pca', PCA(n_components = len(pcaCols), 
+                                        random_state = 1127))])
        
-    # Plot explained variance curve
-    axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
-                np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
-                '-bo', 
-                markersize = 20, 
-                linewidth = 10)
-    
-    # Convert y-axis to %
-    axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-    
-    axs[1].set_title('Explained Variance vs. # of Components', 
-                     fontsize = titleFontSize)
-    axs[1].set_xlabel('# of Features', 
-                      fontsize = labelFontSize)
-    axs[1].set_ylabel('Explained Variance', 
-                      fontsize = labelFontSize)
-    axs[1].tick_params(labelsize = tickFontSize)
-    axs[1].grid()
-
-
-
-
-### PCA Analysis on matchup dataframes
-
-pcaExcludeCols = ['WTeamID', 'LTeamID'] + colsBase
-
-for df in gamesStatsDFs:
-
-    # Get columns for transformation using PCA
-    pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
-    pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
- 
-    pcaPipe = Pipeline([('sScale', StandardScaler()), 
-                        ('pca', PCA(n_components = len(pcaCols), 
-                                    random_state = 1127))])
-   
-    #pca = PCA(n_components = len(pcaCols), random_state = 1127)
-    
-    pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
-
-
-    fig, axs = plt.subplots(1, 2)
-    plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+        #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+        
+        pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
     
     
-    # Determine how many labels to plot so that axis isn' cluttered
-    axisLabelFreq = len(pcaCols) // 20 + 1
-    xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
-    xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
+        fig, axs = plt.subplots(1, 2)
+        plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+        
+        
+        # Determine how many labels to plot so that axis isn' cluttered
+        axisLabelFreq = len(pcaCols) // 20 + 1
+        xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
+        xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
+        
+        # Plot feature weights for each component
+        sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
+                    square = False, 
+                    cmap = 'coolwarm', 
+                    ax=axs[0], 
+                    #annot=True,
+                    xticklabels = axisLabelFreq,
+                    yticklabels = axisLabelFreq)
+        
+        # Add feature lables & format plot    
+        axs[0].set_xticklabels(xAxisLabels, 
+                               fontsize = tickFontSize,
+                               rotation = 90)
+        axs[0].tick_params(labelsize = tickFontSize)
+        axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
+        axs[0].set_xlabel('Feature', fontsize = labelFontSize)
+        axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+           
+        # Plot explained variance curve
+        axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
+                    np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
+                    '-bo', 
+                    markersize = 20, 
+                    linewidth = 10)
+        
+        # Convert y-axis to %
+        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+        
+        axs[1].set_title('Explained Variance vs. # of Components', 
+                         fontsize = titleFontSize)
+        axs[1].set_xlabel('# of Features', 
+                          fontsize = labelFontSize)
+        axs[1].set_ylabel('Explained Variance', 
+                          fontsize = labelFontSize)
+        axs[1].tick_params(labelsize = tickFontSize)
+        axs[1].grid()
     
-    # Plot feature weights for each component
-    sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
-                square = False, 
-                cmap = 'coolwarm', 
-                ax=axs[0], 
-                #annot=True,
-                xticklabels = axisLabelFreq,
-                yticklabels = axisLabelFreq)
     
-    # Add feature lables & format plot    
-    axs[0].set_xticklabels(xAxisLabels, 
-                           fontsize = tickFontSize,
-                           rotation = 90)
-    axs[0].tick_params(labelsize = tickFontSize)
-    axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
-    axs[0].set_xlabel('Feature', fontsize = labelFontSize)
-    axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+    
+    
+    ### PCA Analysis on matchup dataframes
+    
+    pcaExcludeCols = ['WTeamID', 'LTeamID'] + colsBase
+    
+    for df in gamesStatsDFs:
+    
+        # Get columns for transformation using PCA
+        pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+        pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
+     
+        pcaPipe = Pipeline([('sScale', StandardScaler()), 
+                            ('pca', PCA(n_components = len(pcaCols), 
+                                        random_state = 1127))])
        
-    # Plot explained variance curve
-    axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
-                np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
-                '-bo', 
-                markersize = 20, 
-                linewidth = 10)
+        #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+        
+        pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
     
-    # Convert y-axis to %
-    axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
     
-    axs[1].set_title('Explained Variance vs. # of Components', 
-                     fontsize = titleFontSize)
-    axs[1].set_xlabel('# of Features', 
-                      fontsize = labelFontSize)
-    axs[1].set_ylabel('Explained Variance', 
-                      fontsize = labelFontSize)
-    axs[1].tick_params(labelsize = tickFontSize)
-    axs[1].grid()
+        fig, axs = plt.subplots(1, 2)
+        plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+        
+        
+        # Determine how many labels to plot so that axis isn' cluttered
+        axisLabelFreq = len(pcaCols) // 20 + 1
+        xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
+        xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
+        
+        # Plot feature weights for each component
+        sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
+                    square = False, 
+                    cmap = 'coolwarm', 
+                    ax=axs[0], 
+                    #annot=True,
+                    xticklabels = axisLabelFreq,
+                    yticklabels = axisLabelFreq)
+        
+        # Add feature lables & format plot    
+        axs[0].set_xticklabels(xAxisLabels, 
+                               fontsize = tickFontSize,
+                               rotation = 90)
+        axs[0].tick_params(labelsize = tickFontSize)
+        axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
+        axs[0].set_xlabel('Feature', fontsize = labelFontSize)
+        axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+           
+        # Plot explained variance curve
+        axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
+                    np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
+                    '-bo', 
+                    markersize = 20, 
+                    linewidth = 10)
+        
+        # Convert y-axis to %
+        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+        
+        axs[1].set_title('Explained Variance vs. # of Components', 
+                         fontsize = titleFontSize)
+        axs[1].set_xlabel('# of Features', 
+                          fontsize = labelFontSize)
+        axs[1].set_ylabel('Explained Variance', 
+                          fontsize = labelFontSize)
+        axs[1].tick_params(labelsize = tickFontSize)
+        axs[1].grid()
+    
+    
+    
+    
+# #############################################################################
+# ############### FEATURE IMPORTANCE AND FEATURE SELECTION ####################
+# #############################################################################
+
+for df in ('tGamesC', 'tGamesD'):
+
+    indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                                & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
+                    dataDict[df + 'modelData'].columns.tolist())
+    
+    # Build a forest and compute the feature importances
+    forest = ExtraTreesClassifier(n_estimators=250,
+                                  random_state=0)
+    
+    X = dataDict[df + 'modelData'][indCols2]
+    y = dataDict[df + 'modelData']['winnerA']
+    
+    forest.fit(X, y)
+    
+    importances = forest.feature_importances_
+    
+    featureRank = zip(forest.feature_importances_, indCols2)
+    featureRank.sort(reverse = True)
 
 
+    fig, ax = plt.subplots(1)
+    
+    sns.barplot(zip(*featureRank)[0], zip(*featureRank)[1], ax = ax)
+
+
+
+std = np.std([tree.feature_importances_ for tree in forest.estimators_],
+             axis=0)
+indices = np.argsort(importances)[::-1]
+
+# Print the feature ranking
+print("Feature ranking:")
+
+for f in range(X.shape[1]):
+    print("%d. feature %d (%f)" % (f + 1, indices[f], importances[indices[f]]))
 
 
 #==============================================================================
