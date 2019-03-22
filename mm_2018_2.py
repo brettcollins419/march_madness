@@ -1439,7 +1439,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
     pipe = Pipeline([('sScale', StandardScaler()), 
-                     ('pca',  PCA(n_components = numIndCols // 2)),
+                     # ('pca',  PCA(n_components = numIndCols // 2)),
                      ('fReduce', fReduce),
                      # ('fReduce', PCA(n_components = 10)),
                      ('mdl', LogisticRegression(random_state = 1127))])
