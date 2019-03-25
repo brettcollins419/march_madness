@@ -28,7 +28,7 @@ import socket
 
 
 from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, OneHotEncoder, LabelEncoder, QuantileTransformer, KBinsDiscretizer, PolynomialFeatures
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2, RFECV
@@ -984,6 +984,8 @@ fillDict = {'LSeed':'NA',
             'seedRank':17,
             'OrdinalRank': 176}
 
+oheConferences = False
+
 for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
     dataDict[df] = dataDict[df].merge(dataDict['teamConferences'].set_index(['Season', 'TeamID']), 
                                       how = 'left', 
@@ -1003,7 +1005,30 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 
     dataDict[df].fillna(fillDict, inplace = True)
 
-
+    
+    # New column with all small conferences grouped together
+    dataDict[df].loc[:, 'confGroups'] = map(lambda conf: conf if conf in ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
+                                            else 'other',
+                                            dataDict[df]['ConfAbbrev'].values.tolist())
+    
+    # One Hot Encode confGroups
+    if oheConferences == True:
+        le, ohe = LabelEncoder(), OneHotEncoder(handle_unknown='ignore', sparse = False)
+        x = ohe.fit_transform(le.fit_transform(dataDict[df]['confGroups']).reshape(-1,1))
+        
+        x = pd.DataFrame(x, columns = map(lambda conf: 'ohe_{}'.format(conf), 
+                                                               le.classes_.tolist()))
+        
+        dataDict[df] = pd.concat([dataDict[df].reset_index(), x],
+                                axis = 1)
+        
+        #dataDict[df].drop('level_0', axis = 1, inplace = True)
+        dataDict[df].set_index(['Season', 'TeamID'], inplace = True)
+        
+        
+        # Group seeds into 4's
+        dataDict[df].loc[:, 'seedRankGroups'] = map(lambda rank: rank // 4, 
+                                                dataDict[df]['seedRank'].values.tolist())
 
 #==============================================================================
 # CALCULATE SEED STATISTICS FOR TOURNAMENT
@@ -1050,7 +1075,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                                     teamID2 = 'LTeamID',
                                                                     label1 = 'W', 
                                                                     label2 = 'L',
-                                                                    calculateDeltas = True,
+                                                                    calculateDeltas = False,
                                                                     returnStatCols = True,
                                                                     createMatchupFields = True,
                                                                     )
@@ -1070,7 +1095,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                            teamID2 = 'BTeamID',
                                                            label1 = 'A', 
                                                            label2 = 'B',
-                                                           calculateDeltas = True,
+                                                           calculateDeltas = False,
                                                            returnStatCols = True,
                                                            createMatchupFields = True)
     
@@ -1347,24 +1372,11 @@ for df in ('tGamesC', 'tGamesD'):
     sns.barplot(zip(*featureRank)[0], zip(*featureRank)[1], ax = ax)
 
 
-
-std = np.std([tree.feature_importances_ for tree in forest.estimators_],
-             axis=0)
-indices = np.argsort(importances)[::-1]
-
-# Print the feature ranking
-print("Feature ranking:")
-
-for f in range(X.shape[1]):
-    print("%d. feature %d (%f)" % (f + 1, indices[f], importances[indices[f]]))
-
+# Feature Selection
 
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
-
-from sklearn.feature_selection import RFE, SelectFromModel
-from sklearn.svm import LinearSVC
 
 modelDict = {}
 
@@ -1398,48 +1410,54 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     #                        ])
    
     #fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
-    fReduce = SelectKBest(k = 1)
+    fReduce = SelectPercentile(percentile = 0.5)
+    # fReduce = SelectKBest(k = 1)
     
     
-    paramGrid = [{#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                  'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
-                  #'fReduce__n_features_to_select' : range(3, 1 + numIndCols // 2),
-                  'mdl' : [DecisionTreeClassifier(random_state = 1127), 
-                             RandomForestClassifier(random_state = 1127,
-                                                             n_estimators = 100,
-                                                             n_jobs = -1,
-                                                             verbose = 0)],
-                    'mdl__min_samples_split' : map(lambda c: c/20, range(1, 5)),
-                    'mdl__min_samples_leaf' : xrange(2, 10, 4)
-                    
+    paramGrid = [
+                {'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+                          RandomForestClassifier(random_state = 1127,
+                                                 n_estimators = 100,
+                                                 n_jobs = -1,
+                                                 verbose = 0)],
+                 'mdl__min_samples_split' : np.arange(.005, .1, .01),
+                 'mdl__min_samples_leaf' : xrange(2, 11, 4)
                     },
                     
-                {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                 #'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
-                  'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
-                  'mdl' : [LogisticRegression(random_state = 1127)],
-                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3))
+                {'mdl' : [LogisticRegression(random_state = 1127)],
+                 'mdl__C' : map(lambda i: 10**i, xrange(-1,4))
                     },
                     
-                {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                 #'fReduce__n_features_to_select' : range(3, 1 +  numIndCols // 2),
-                 'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
-                  'mdl' : [SVC(probability = True)],
-                    'mdl__C' : map(lambda i: 10**i, xrange(-1,3)),
-                    'mdl__gamma' : map(lambda i: 10**i, xrange(-3,1))
+                {'mdl' : [SVC(probability = True)],
+                 'mdl__C' : map(lambda i: 10**i, xrange(-1,4)),
+                 'mdl__gamma' : map(lambda i: 10**i, xrange(-4,1))
                     },
                     
-                {#'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits),
-                 #'fReduce__n_features_to_select' : range(1, 1 +  numIndCols // 2),
-                 'fReduce__k' : range(1,min(10, 1 + numIndCols // 2)),
-                 'mdl' : [KNeighborsClassifier()],
+                {'mdl' : [KNeighborsClassifier()],
                  'mdl__n_neighbors' : range(3, 10, 2)
-                    
-                    }]
+                    }
+                ]
+            
+    
+    # Update paramGrid with other grid search parameters that apply to all models
+#    map(lambda d: d.update({'fReduce__n_features_to_select' : range(1, min(1 +  numIndCols, 26), 2)}),
+#        paramGrid)
+#    map(lambda d: d.update({'fReduce__k' : range(1,min(10, 1 + numIndCols // 2))}),
+#        paramGrid)
+    map(lambda d: d.update({'fReduce__percentile' : np.arange(0.1, 0.71, 0.2)}),
+        paramGrid)
+#    map(lambda d: d.update({'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits)}),
+#        paramGrid)    
+    
+    
     
     # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
-    pipe = Pipeline([('sScale', StandardScaler()), 
+    pipe = Pipeline([#('sScale', StandardScaler()), 
+                     #('sScale', QuantileTransformer()),
                      # ('pca',  PCA(n_components = numIndCols // 2)),
+                     ('poly', PolynomialFeatures(degree = 2, interaction_only = True)),
+                     ('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
+                     ('scale', MinMaxScaler()),
                      ('fReduce', fReduce),
                      # ('fReduce', PCA(n_components = 10)),
                      ('mdl', LogisticRegression(random_state = 1127))])
@@ -1658,8 +1676,23 @@ for df in ('tGamesC',
 # ================= END TOURNAMENT PRECITIONS ================================
 # ============================================================================
 
+# ============================================================================
+# ===================== DEV ==================================================
+# ============================================================================
 
+dataDict.keys()
 
+# Count teams by conference
+teamConfCount = dataDict['tGamesDTeamSeasonStats'].groupby('ConfAbbrev')['win'].count()
+teamConfCount.sort_values(ascending = False, inplace = True)
 
+# plot counts
+fig, ax = plt.subplots(1)
+sns.barplot(y = teamConfCount, x = teamConfCount.index.get_values())
 
-        
+# Isolate top 5 conferences and group all others
+teamConfCount[:5].index.get_values().tolist()
+
+for df in ()
+
+help(x.sort)      
