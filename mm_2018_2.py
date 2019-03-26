@@ -22,7 +22,7 @@ from matplotlib.colors import Colormap
 import seaborn as sns
 import os
 import re
-from itertools import product, islice, chain, repeat
+from itertools import product, islice, chain, repeat, combinations
 from datetime import datetime
 import socket
 
@@ -1188,7 +1188,7 @@ del(corrColsTemp, x)
 #       develop contribution of each axis
 
 
-performPCA = False
+performPCA = True
 
 if performPCA == True:
     
@@ -1346,32 +1346,103 @@ if performPCA == True:
 # ############### FEATURE IMPORTANCE AND FEATURE SELECTION ####################
 # #############################################################################
 
+# Build a forest and compute the feature importances
+forest = ExtraTreesClassifier(n_estimators=250,
+                              random_state=1127)
+
+model = LogisticRegression(random_state = 1127)
+
+poly = PolynomialFeatures(degree = 2, interaction_only = True)
+
+testTrainSplit = 0.2
+
+modelResults, featureRankAll = list(), list()
+
+
 for df in ('tGamesC', 'tGamesD'):
 
     indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
                                 & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
                     dataDict[df + 'modelData'].columns.tolist())
     
-    # Build a forest and compute the feature importances
-    forest = ExtraTreesClassifier(n_estimators=250,
-                                  random_state=0)
+
     
-    X = dataDict[df + 'modelData'][indCols2]
-    y = dataDict[df + 'modelData']['winnerA']
     
-    forest.fit(X, y)
+    # Model Data & initial poly fit
+    data = dataDict[df + 'modelData'][dataDict[df + 'modelData'].index.get_level_values('Season') >= 2003]
+    poly.fit(data[indCols2])
     
-    importances = forest.feature_importances_
     
-    featureRank = zip(forest.feature_importances_, indCols2)
-    featureRank.sort(reverse = True)
+    featureCols = poly.get_feature_names(indCols2)
+    
+    dataPoly = pd.DataFrame(poly.transform(data[indCols2]), columns = featureCols)
+    
+    data = pd.concat([dataPoly, data.reset_index().loc[:,'winnerA']], axis = 1)
+
+
+    # Split data for analysis
+    xTrain, xTest, yTrain, yTest = train_test_split(data[featureCols], 
+                                                    data['winnerA'],
+                                                    test_size = testTrainSplit,
+                                                    random_state = 1127)
+
+
+    # Iterate through features and systematically remove features with lowest importance
+    # Recalculate feature importantce and model score after each iterations
+    #for nFeatures in range(len(featureCols), 1, -5):
+    while len(featureCols) > 0:
+        
+
+        # update independent data with selected columns
+        xTrain, xTest = xTrain[featureCols], xTest[featureCols]
+        
+        
+        # Fit forest Model for feature importance and selection
+        forest.fit(xTrain, yTrain)
+        
+        # Fit logistic model for predictions
+        model.fit(xTrain, yTrain)
+        
+        
+        # Calculate Model Accuracy and auc    
+        modelResults.append(
+                        (len(featureCols), 
+                             roc_auc_score(yTest, model.predict(xTest)), 
+                             accuracy_score(yTest, model.predict(xTest)),
+                             roc_auc_score(yTest, forest.predict(xTest)), 
+                             accuracy_score(yTest, forest.predict(xTest))
+                             )
+                        )
+        
+      
+        # Get Feature Importances
+        featureRank = zip(forest.feature_importances_, 
+                          featureCols, 
+                          repeat(len(featureCols), len(featureCols)))
+        
+        # Sort features by importanc
+        featureRank.sort(reverse = True)
+
+
+        featureRankAll.append(featureRank)
+
+        # Remove lowest feature rankings
+        featureCols = list(zip(*featureRank)[1][:-2])
+
+
 
 
     fig, ax = plt.subplots(1)
     
-    sns.barplot(zip(*featureRank)[0], zip(*featureRank)[1], ax = ax)
+    #sns.barplot(zip(*featureRank)[0]/max(zip(*featureRank)[0]), zip(*featureRank)[1], ax = ax)
 
 
+    #sns.lmplot(x = zip(*modelResults)[0], y = zip(*modelResults)[1])
+
+    plt.plot(zip(*modelResults)[0], zip(*modelResults)[1], label = 'logistic')
+    plt.plot(zip(*modelResults)[0], zip(*modelResults)[3], label = 'forest')
+
+    plt.legend()
 # Feature Selection
 
 #==============================================================================
@@ -1412,17 +1483,29 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     #fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
     fReduce = SelectPercentile(percentile = 0.5)
     # fReduce = SelectKBest(k = 1)
+ 
+    
+    # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
+    pipe = Pipeline([#('sScale', StandardScaler()), 
+                     #('sScale', QuantileTransformer()),
+                     # ('pca',  PCA(n_components = numIndCols // 2)),
+                     ('poly', PolynomialFeatures(degree = 3, interaction_only = True)),
+                     #('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
+                     ('scale', StandardScaler()),
+                     ('fReduce', fReduce),
+                     # ('fReduce', PCA(n_components = 10)),
+                     ('mdl', LogisticRegression(random_state = 1127))])
     
     
     paramGrid = [
-                {'mdl' : [DecisionTreeClassifier(random_state = 1127), 
-                          RandomForestClassifier(random_state = 1127,
-                                                 n_estimators = 100,
-                                                 n_jobs = -1,
-                                                 verbose = 0)],
-                 'mdl__min_samples_split' : np.arange(.005, .1, .01),
-                 'mdl__min_samples_leaf' : xrange(2, 11, 4)
-                    },
+#                {'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+#                          RandomForestClassifier(random_state = 1127,
+#                                                 n_estimators = 100,
+#                                                 n_jobs = -1,
+#                                                 verbose = 0)],
+#                 'mdl__min_samples_split' : np.arange(.005, .1, .01),
+#                 'mdl__min_samples_leaf' : xrange(2, 11, 4)
+#                    },
                     
                 {'mdl' : [LogisticRegression(random_state = 1127)],
                  'mdl__C' : map(lambda i: 10**i, xrange(-1,4))
@@ -1451,17 +1534,7 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     
     
-    # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
-    pipe = Pipeline([#('sScale', StandardScaler()), 
-                     #('sScale', QuantileTransformer()),
-                     # ('pca',  PCA(n_components = numIndCols // 2)),
-                     ('poly', PolynomialFeatures(degree = 2, interaction_only = True)),
-                     ('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
-                     ('scale', MinMaxScaler()),
-                     ('fReduce', fReduce),
-                     # ('fReduce', PCA(n_components = 10)),
-                     ('mdl', LogisticRegression(random_state = 1127))])
-    
+
     
     
     
