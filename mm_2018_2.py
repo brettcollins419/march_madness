@@ -889,7 +889,7 @@ del(colsWin, colsLoss, colName, colList)
 #==============================================================================
 # CALCULATE TEAM SUMMARIES FOR REGULAR SEASON & TOURNAMENT
 #==============================================================================
-for df in gamesData:
+for df in ('rGamesC', 'rGamesD'):
 
     colsWinTemp = filter(colsWinFilter,
                   dataDict[df].columns.tolist())
@@ -909,11 +909,11 @@ for df in gamesData:
     
     # Assign losses DayNum = 0, thus average DayNum is a reflection of when
     # teams are winning (late in the season = High number, early = low, even = mid)
-    if 'DayNum' in lossDF.columns.tolist():
-        lossDF['DayNum'] = 0
+#    if 'DayNum' in lossDF.columns.tolist():
+#        lossDF.loc[:, 'DayNum'] = 0
     
     # Flip scoreGap for losing Team
-    lossDF['scoreGap'] = lossDF['scoreGap'] * -1
+    lossDF.loc[:, 'scoreGap'] = lossDF.loc[:, 'scoreGap'] * -1
     
     # Drop 'W' & 'L' from labels
     winDF.rename(columns=dict(zip(colsWinTemp, 
@@ -928,13 +928,22 @@ for df in gamesData:
     
     # Combine wins and losses data and calculate means
     aggDF = pd.concat((winDF, lossDF))
+    aggDF.sort_values('DayNum', inplace = True)
+    
+    
+    dataDict[df + 'singleTeam'] = aggDF
     
     dataDict[df + 'TeamSeasonStats'] = aggDF.groupby(['Season', 'TeamID']).mean()
-    dataDict[df + 'TeamSeasonStats']['games'] = aggDF.groupby(['Season', 'TeamID'])['win'].count()
+    dataDict[df + 'TeamSeasonStats'].loc[:, 'last8'] =  aggDF.groupby(['Season', 'TeamID']).agg({'win': lambda games: np.mean(games[-8:])})
+    
+    dataDict[df + 'TeamSeasonStats'].drop(filter(lambda c: c in ('DayNum', 'NumOT', 'FTM', 'FGM', 'FGM3'), 
+                                                dataDict[df + 'TeamSeasonStats'].columns.tolist()),
+                                            axis = 1,
+                                            inplace = True)
+
     
 del(winDF, lossDF, aggDF, colsLossTemp, colsWinTemp, colsBaseTemp)
     
-
 
 #==============================================================================
 # CALCULATE SEED RANKS
@@ -1062,6 +1071,10 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 # CREATE MODEL DATASET WITH SAME COLUMN CALCULATIONS
 #==============================================================================
 
+calculateDeltas = True
+returnStatCols = True
+createMatchupFields = True
+
 for df in filter(lambda g: g.startswith('t'), gamesData):
    
     # Reference assocated regular season data
@@ -1075,9 +1088,9 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                                     teamID2 = 'LTeamID',
                                                                     label1 = 'W', 
                                                                     label2 = 'L',
-                                                                    calculateDeltas = False,
-                                                                    returnStatCols = True,
-                                                                    createMatchupFields = True,
+                                                                    calculateDeltas = calculateDeltas,
+                                                                    returnStatCols = returnStatCols,
+                                                                    createMatchupFields = createMatchupFields,
                                                                     )
       
     
@@ -1095,9 +1108,9 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
                                                            teamID2 = 'BTeamID',
                                                            label1 = 'A', 
                                                            label2 = 'B',
-                                                           calculateDeltas = False,
-                                                           returnStatCols = True,
-                                                           createMatchupFields = True)
+                                                           calculateDeltas = calculateDeltas,
+                                                           returnStatCols = returnStatCols,
+                                                           createMatchupFields = createMatchupFields)
     
     # Pull out winnerA column from index
     dataDict[df + 'modelData'].reset_index('winnerA', inplace = True)                    
@@ -1361,8 +1374,11 @@ modelResults, featureRankAll = list(), list()
 
 for df in ('tGamesC', 'tGamesD'):
 
+    modelResults, featureRankAll = list(), list()
+    
     indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
-                                & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
+                                & (dataDict[df + 'modelData'][c].dtype.hasobject == False)
+                                & c.endswith('Delta'), 
                     dataDict[df + 'modelData'].columns.tolist())
     
 
@@ -1438,7 +1454,7 @@ for df in ('tGamesC', 'tGamesD'):
 
 
     #sns.lmplot(x = zip(*modelResults)[0], y = zip(*modelResults)[1])
-
+    plt.title(df)
     plt.plot(zip(*modelResults)[0], zip(*modelResults)[1], label = 'logistic')
     plt.plot(zip(*modelResults)[0], zip(*modelResults)[3], label = 'forest')
 
