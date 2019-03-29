@@ -1083,7 +1083,7 @@ for df in ('rGamesC', ):
     
     
     #### SUBSET FOR DEVELOPMENT
-    matchups = matchups[matchups['Season'] == 2019]
+    #matchups = matchups[matchups['Season'] == 2019]
     
     
    
@@ -1143,7 +1143,7 @@ for df in ('rGamesC', ):
                             strengthDF.columns.tolist())
     
 
-    matchups2 = matchups.loc[:, ['Season', 'TeamID', 'opponentID', 'win', 'scoreGap']].merge((strengthDF.reset_index()
+    matchups2 = matchups.loc[:, ['Season', 'TeamID', 'opponentID', 'win', 'scoreGap']].merge((strengthDF2.reset_index()
                                                                                             .rename(columns = {'TeamID':'opponentID'})
                                                                                             .loc[:, ['Season', 'opponentID'] + strengthFields]
                                                                                             ),
@@ -1161,65 +1161,50 @@ for df in ('rGamesC', ):
     oppFields = filter(lambda field: field.startswith('opp') & (field != 'opponentID'),
                    matchups2.columns.tolist())
     
-    fieldAggDict = dict(zip(oppFields, repeat(np.sum, len(oppFields))))
+    # Calculate mean for all opponent strength metrics for ranking
+    fieldAggDict = dict(zip(oppFields, repeat(np.mean, len(oppFields))))
     
     
     # New team strength Metrics = (win * opponent strength), (scoreGap * opponent strength), (win * scoreGap * opponent strength)
     for field in oppFields:
-        matchup2.loc[:, '{}Win'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'win']
-        matchup2.loc[:, '{}SG'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap']
-        matchup2.loc[:, '{}SGWin'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap'] * matchups2.loc[:, 'win']
+        matchups2.loc[:, '{}Win2'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'win']
+        matchups2.loc[:, '{}SG'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap']
+        matchups2.loc[:, '{}SGWin'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap'] * matchups2.loc[:, 'win']
         
     
+    # Team strength fields
     tsFields = filter(lambda field: field.startswith('team') & (field != 'TeamID'),
                       matchups2.columns.tolist())
     
+    
+    # Sum all team strength metrics for ranking
     fieldAggDict.update(dict(zip(tsFields, repeat(np.sum, len(tsFields)))))
         
     
+    strengthDF3 = matchups2.groupby(['Season', 'TeamID']).agg(fieldAggDict)
     
+    # Merge orginal strength metrics 
+    strengthDF3 = strengthDF3.merge(strengthDF, left_index = True, right_index = True)
     
-    for metric in strengthFields:
-       matchups2.loc[:, '{}Win'.format(metric)] = matchups2.loc[:, metric] * matchups2.loc[:, 'win']
+    # Scale All metrics
+    strengthDF3 = strengthDF3.groupby('Season').apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
     
+    # Calculate Ranks
+    strengthDF3Rank = strengthDF3.groupby('Season').rank(ascending = False)
     
-    strengthDF2 = matchups2.drop(['opponentID', 'win'], axis = 1).groupby(['Season', 'TeamID']).sum()
+    # Add team names
+    strengthDF3Rank = strengthDF3Rank.reset_index('Season').merge(dataDict['teams'], left_index = True, right_on = 'TeamID')
     
-    
-    for metric in strengthDF2.columns.tolist():
-        strengthDF2.loc[:, '{}Rank'.format(metric)] = strengthDF2.groupby('Season')[metric].rank(ascending = False)
-    
-    
-    
-    for rank, metric in (('scheduleStrengthRank', 'oppwin'),
-                         ('teamStrengthWinRank', 'teamStrengthWin'),
-                         ('scoreGapMarginRank', 'scoreGapMargin'),
-                         ('teamStrengthMarginRank', 'teamStrengthMargin'),
-                         ('teamStrengthMarginWinRank', 'teamStrengthMarginWin')):
-    
-        strengthDF.loc[:, rank] = strengthDF.groupby('Season')[metric].rank(ascending = False)
-        
-        
-#    strengthDF.sort_values(by = ['Season', 'oppwin'], ascending = [True, False], inplace = True, axis = 0)
-#    
-#    strengthDF.loc[:, 'scheduleStrength'] = strengthDF.groupby('Season')['oppwin'].rank(ascending = False)
-#    strengthDF.loc[:, 'teamWinStrength'] = strengthDF.groupby('Season')['oppStrengthWin'].rank(ascending = False)
-#    strengthDF.loc[:, 'teamWinStrengthMargin'] = strengthDF.groupby('Season')['oppStrengthWinMargin'].rank(ascending = False)
+
 #        
 #    
     
-    dataDict['{}TeamSeasonStats'.format(df)] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF, left_index = True, right_index = True)
-    
-    
-    x = strengthDF2[strengthDF2.index.get_level_values('Season') == 2019]
-    y =  dataDict['{}TeamSeasonStats'.format(df)][dataDict['{}TeamSeasonStats'.format(df)].index.get_level_values('Season') == 2019]
-
-    y = x.reset_index('Season').merge(dataDict['teams'], left_index = True, right_on = 'TeamID')
+    dataDict['{}TeamSeasonStats'.format(df)] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF3, left_index = True, right_index = True)  
+ 
 
 
-sns.scatterplot(x=strengthDF2['teamStrengthScoreGapMarginOppStWin'].rank(ascending = False), y=strengthDF2['teamStrengthScoreGapMarginOppSt'].rank(ascending = False))
+sns.scatterplot(x='teamStrengthScoreGapMarginOppStWinSGWin', y = 'teamStrengthScoreGapMarginOppSt', data = strengthDF3Rank)
 
-strengthDF2['teamStrengthScoreGapMarginOppStWin'].rank(ascending = False)
 
 #==============================================================================
 # CALCULATE SEED STATISTICS FOR TOURNAMENT
@@ -1253,7 +1238,7 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 # CREATE MODEL DATASET WITH SAME COLUMN CALCULATIONS
 #==============================================================================
 
-calculateDeltas = True
+calculateDeltas = False
 returnStatCols = True
 createMatchupFields = True
 
@@ -1554,7 +1539,8 @@ testTrainSplit = 0.2
 modelResults, featureRankAll = list(), list()
 
 
-for df in ('tGamesC', 'tGamesD'):
+for df in ('tGamesC', 
+           'tGamesD'):
 
     modelResults, featureRankAll = list(), list()
     
