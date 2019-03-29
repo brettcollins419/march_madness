@@ -901,11 +901,13 @@ for df in ('rGamesC', 'rGamesD'):
     colsBaseTemp = filter(lambda c: (c in colsBase) & (c != 'WLoc'), 
                           dataDict[df].columns.tolist())   
     
-    winDF = dataDict[df].loc[:, colsBaseTemp + colsWinTemp]
-    winDF['win'] = 1
+    winDF = dataDict[df].loc[:, colsBaseTemp + colsWinTemp + ['LTeamID']]
+    winDF.rename(columns = {'LTeamID':'opponentID'}, inplace = True)
+    winDF.loc[:, 'win'] = 1
 
-    lossDF = dataDict[df].loc[:, colsBaseTemp + colsLossTemp]
-    lossDF['win'] = 0
+    lossDF = dataDict[df].loc[:, colsBaseTemp + colsLossTemp + ['WTeamID']]
+    lossDF.rename(columns = {'WTeamID':'opponentID'}, inplace = True)
+    lossDF.loc[:, 'win'] = 0
     
     # Assign losses DayNum = 0, thus average DayNum is a reflection of when
     # teams are winning (late in the season = High number, early = low, even = mid)
@@ -928,21 +930,32 @@ for df in ('rGamesC', 'rGamesD'):
     
     # Combine wins and losses data and calculate means
     aggDF = pd.concat((winDF, lossDF))
+    
+    
+    # Sort values for finding win % for last 8 games
     aggDF.sort_values('DayNum', inplace = True)
+    
+    
+    # Calculate points allowed
+    aggDF.loc[:, 'pointsAllowed'] = map(lambda g: g[0] - g[1], 
+                                     aggDF.loc[:, ['Score', 'scoreGap']].values.tolist())
     
     
     dataDict[df + 'singleTeam'] = aggDF
     
-    dataDict[df + 'TeamSeasonStats'] = aggDF.groupby(['Season', 'TeamID']).mean()
+    statCols = filter(lambda c: c not in ('DayNum', 'NumOT', 'FTM', 'FGM', 'FGM3', 'opponentID', 'TeamID', 'Season'),
+                      aggDF.columns.tolist())
+    
+    dataDict[df + 'TeamSeasonStats'] = aggDF.groupby(['Season', 'TeamID'])[statCols].mean()
     dataDict[df + 'TeamSeasonStats'].loc[:, 'last8'] =  aggDF.groupby(['Season', 'TeamID']).agg({'win': lambda games: np.mean(games[-8:])})
     
-    dataDict[df + 'TeamSeasonStats'].drop(filter(lambda c: c in ('DayNum', 'NumOT', 'FTM', 'FGM', 'FGM3'), 
-                                                dataDict[df + 'TeamSeasonStats'].columns.tolist()),
-                                            axis = 1,
-                                            inplace = True)
+#    dataDict[df + 'TeamSeasonStats'].drop(filter(lambda c: c in ('DayNum', 'NumOT', 'FTM', 'FGM', 'FGM3'), 
+#                                                dataDict[df + 'TeamSeasonStats'].columns.tolist()),
+#                                            axis = 1,
+#                                            inplace = True)
 
     
-del(winDF, lossDF, aggDF, colsLossTemp, colsWinTemp, colsBaseTemp)
+del(winDF, lossDF, aggDF, colsLossTemp, colsWinTemp, colsBaseTemp, statCols)
     
 
 #==============================================================================
@@ -985,6 +998,8 @@ del(maxRankDate, rsRankings, dataDict['MasseyOrdinals'])
 
 
 
+
+
 #==============================================================================
 # MERGE CONFERENCES, SEEDS & RANKS TO TEAM SEASON 
 #==============================================================================
@@ -995,7 +1010,7 @@ fillDict = {'LSeed':'NA',
 
 oheConferences = False
 
-for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
+for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
     dataDict[df] = dataDict[df].merge(dataDict['teamConferences'].set_index(['Season', 'TeamID']), 
                                       how = 'left', 
                                       left_index = True,
@@ -1035,22 +1050,189 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
         dataDict[df].set_index(['Season', 'TeamID'], inplace = True)
         
         
-        # Group seeds into 4's
-        dataDict[df].loc[:, 'seedRankGroups'] = map(lambda rank: rank // 4, 
-                                                dataDict[df]['seedRank'].values.tolist())
+    # Group seeds into 4's
+    dataDict[df].loc[:, 'seedRankGroups'] = map(lambda rank: (rank-1) // 4, 
+                                            dataDict[df]['seedRank'].values.tolist())
+
+
+
+
+# =================================================================== #
+# STRENGTH OF SCHEDULE AND PERFORMANCE AGAINST STRONG TEAM METRICS #
+# =================================================================== #
+
+# Merge 
+for df in ('rGamesC', ):
+
+    # Create matchup stats using team season statistics
+    matchups = generateGameMatchupStats2(indexCols = ['Season', 'DayNum', 'TeamID', 'opponentID'],
+                                                                    gameDF = dataDict['{}singleTeam'.format(df)],
+                                                                    teamDF = dataDict['{}TeamSeasonStats'.format(df)],                                                                 
+                                                                    teamID1 = 'TeamID', 
+                                                                    teamID2 = 'opponentID',
+                                                                    label1 = 'team', 
+                                                                    label2 = 'opp',
+                                                                    calculateDeltas = False,
+                                                                    returnStatCols = True,
+                                                                    createMatchupFields = False,
+                                                                    )
+    
+    
+    # Merge team stat matchup with game results
+    matchups = dataDict['{}singleTeam'.format(df)].merge(matchups.reset_index(), on = ['Season', 'DayNum', 'TeamID', 'opponentID'])
+    
+    
+    #### SUBSET FOR DEVELOPMENT
+    matchups = matchups[matchups['Season'] == 2019]
+    
+    
+   
+    # Scale oppenent score gap to use as multiplier for determining team strength    
+    matchups.loc[:, 'oppScoreGapScale'] = matchups.groupby('Season')['oppscoreGap'].apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
+
+
+    # Opponent win % * average score margin
+    #   Higher number for opponents that win frequently and win big
+    matchups.loc[:, 'oppStrength'] = matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale']
+    
+    # Opponent Win % * if team won the game (use for calculating strength of team)
+    matchups.loc[:, 'teamStrengthWin'] = matchups.loc[:, 'oppwin'] * matchups.loc[:, 'win']
+    
+
+    # Estimate team strength by oppenent win % * opponent avg scoreGap * (if team won game)
+    matchups.loc[:, 'teamStrengthOppStrengthWin'] =  matchups.loc[:, 'oppwin'] * matchups.loc[:, 'win'] * matchups.loc[:, 'oppScoreGapScale'] 
+   
+
+    # Compare game margin to opponent typical margin
+    #   Did team perform better or worse than average against opponent
+    matchups.loc[:, 'teamStrengthScoreGapMargin'] =  matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']
+    
+    
+    
+    # Reward teams for beating opponent scoring margin.  Weight by opponent win % and margin improvement
+    matchups.loc[:, 'teamStrengthScoreGapMarginOppWin'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin']
+    
+    
+    # Reward teams for beating opponent scoring margin.  Weight by (opponent win % * avg score margin) * margin improvement
+    matchups.loc[:, 'teamStrengthScoreGapMarginOppSt'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale']
+
+    
+    # Same calculation as teamStrengthMargin except only reward for winning
+    matchups.loc[:, 'teamStrengthScoreGapMarginOppStWin'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale'] * matchups.loc[:, 'win']
+    
+    
+    # Calculate team metrics for ranking
+    strengthDF = matchups.groupby(['Season', 'TeamID']).agg({'oppwin':np.mean,
+                                                             'teamStrengthWin' : np.sum,
+                                                             'oppStrength':np.mean,
+                                                             'teamStrengthOppStrengthWin' : np.sum,
+                                                             'teamStrengthScoreGapMargin' : np.mean,
+                                                             'teamStrengthScoreGapMarginOppWin' : np.sum,
+                                                             'teamStrengthScoreGapMarginOppSt' : np.mean,
+                                                             'teamStrengthScoreGapMarginOppStWin' : np.sum})
+   
+    
+    # Scale Data between 0 and 1 using minmax to avoid negatives
+    strengthDF2 = strengthDF.groupby('Season').apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
+    
+    
+    # Join the strengthDF to matchups on opponentID to calculate more advanced strength of schedule
+    # and team strength metrics using team strength metrics orginally derived from estimating opponent strength using win % and avg score margin  
+    
+    strengthFields = filter(lambda field: field not in ('oppwin', 'oppStrength'),
+                            strengthDF.columns.tolist())
+    
+
+    matchups2 = matchups.loc[:, ['Season', 'TeamID', 'opponentID', 'win', 'scoreGap']].merge((strengthDF.reset_index()
+                                                                                            .rename(columns = {'TeamID':'opponentID'})
+                                                                                            .loc[:, ['Season', 'opponentID'] + strengthFields]
+                                                                                            ),
+                                                                left_on = ['Season', 'opponentID'],
+                                                                #right_index = True
+                                                                right_on = ['Season', 'opponentID']
+                                                                )
+    
+    
+    # Rename all teamStrength columns to opponentStrength since metrics now reflect the opponent
+    matchups2.rename(columns = dict(map(lambda field: (field, field.replace('team', 'opp')), strengthFields)), inplace = True)
+    
+    
+    # New oppoenent Strength metrics average of "opp" column
+    oppFields = filter(lambda field: field.startswith('opp') & (field != 'opponentID'),
+                   matchups2.columns.tolist())
+    
+    fieldAggDict = dict(zip(oppFields, repeat(np.sum, len(oppFields))))
+    
+    
+    # New team strength Metrics = (win * opponent strength), (scoreGap * opponent strength), (win * scoreGap * opponent strength)
+    for field in oppFields:
+        matchup2.loc[:, '{}Win'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'win']
+        matchup2.loc[:, '{}SG'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap']
+        matchup2.loc[:, '{}SGWin'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap'] * matchups2.loc[:, 'win']
+        
+    
+    tsFields = filter(lambda field: field.startswith('team') & (field != 'TeamID'),
+                      matchups2.columns.tolist())
+    
+    fieldAggDict.update(dict(zip(tsFields, repeat(np.sum, len(tsFields)))))
+        
+    
+    
+    
+    for metric in strengthFields:
+       matchups2.loc[:, '{}Win'.format(metric)] = matchups2.loc[:, metric] * matchups2.loc[:, 'win']
+    
+    
+    strengthDF2 = matchups2.drop(['opponentID', 'win'], axis = 1).groupby(['Season', 'TeamID']).sum()
+    
+    
+    for metric in strengthDF2.columns.tolist():
+        strengthDF2.loc[:, '{}Rank'.format(metric)] = strengthDF2.groupby('Season')[metric].rank(ascending = False)
+    
+    
+    
+    for rank, metric in (('scheduleStrengthRank', 'oppwin'),
+                         ('teamStrengthWinRank', 'teamStrengthWin'),
+                         ('scoreGapMarginRank', 'scoreGapMargin'),
+                         ('teamStrengthMarginRank', 'teamStrengthMargin'),
+                         ('teamStrengthMarginWinRank', 'teamStrengthMarginWin')):
+    
+        strengthDF.loc[:, rank] = strengthDF.groupby('Season')[metric].rank(ascending = False)
+        
+        
+#    strengthDF.sort_values(by = ['Season', 'oppwin'], ascending = [True, False], inplace = True, axis = 0)
+#    
+#    strengthDF.loc[:, 'scheduleStrength'] = strengthDF.groupby('Season')['oppwin'].rank(ascending = False)
+#    strengthDF.loc[:, 'teamWinStrength'] = strengthDF.groupby('Season')['oppStrengthWin'].rank(ascending = False)
+#    strengthDF.loc[:, 'teamWinStrengthMargin'] = strengthDF.groupby('Season')['oppStrengthWinMargin'].rank(ascending = False)
+#        
+#    
+    
+    dataDict['{}TeamSeasonStats'.format(df)] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF, left_index = True, right_index = True)
+    
+    
+    x = strengthDF2[strengthDF2.index.get_level_values('Season') == 2019]
+    y =  dataDict['{}TeamSeasonStats'.format(df)][dataDict['{}TeamSeasonStats'.format(df)].index.get_level_values('Season') == 2019]
+
+    y = x.reset_index('Season').merge(dataDict['teams'], left_index = True, right_on = 'TeamID')
+
+
+sns.scatterplot(x=strengthDF2['teamStrengthScoreGapMarginOppStWin'].rank(ascending = False), y=strengthDF2['teamStrengthScoreGapMarginOppSt'].rank(ascending = False))
+
+strengthDF2['teamStrengthScoreGapMarginOppStWin'].rank(ascending = False)
 
 #==============================================================================
 # CALCULATE SEED STATISTICS FOR TOURNAMENT
 #==============================================================================
-for df in filter(lambda n: n.startswith('t'), gamesData):
-
-
-    dataDict[df + 'SeedStats'] = (dataDict[df + 'TeamSeasonStats'].reset_index()
-                                              .drop(['Season', 'DayNum', 'TeamID', 'ConfAbbrev'], axis = 1)
-                                              .groupby('seedRank')
-                                              .mean())
-
-
+#for df in filter(lambda n: n.startswith('t'), gamesData):
+#
+#
+#    dataDict[df + 'SeedStats'] = (dataDict[df + 'TeamSeasonStats'].reset_index()
+#                                              .drop(['Season', 'DayNum', 'TeamID', 'ConfAbbrev'], axis = 1)
+#                                              .groupby('seedRank')
+#                                              .mean())
+#
+#
 
 #==============================================================================
 # CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
