@@ -1195,15 +1195,20 @@ for df in ('rGamesC', ):
     # Add team names
     strengthDF3Rank = strengthDF3Rank.reset_index('Season').merge(dataDict['teams'], left_index = True, right_on = 'TeamID')
     
+# use 'teamStrengthScoreGapMarginOppStWin' as teamstrength since it has the highest feature importance correlation with model auc
+for topN in (10, 25, 50):
+    strengthDF3.loc[:, 'wins{}'.format(topN)] = matchups.loc[matchups.groupby('Season')['teamStrengthScoreGapMarginOppStWin'].rank(ascending = False) <= topN, :].groupby(['Season', 'TeamID']).agg({'win':np.sum})
 
 #        
 #    
-    
+    # Merge team strength and strength of schedule metrics to rest of team season stats
     dataDict['{}TeamSeasonStats'.format(df)] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF3, left_index = True, right_index = True)  
  
 
 
-sns.scatterplot(x='teamStrengthScoreGapMarginOppStWinSGWin', y = 'teamStrengthScoreGapMarginOppSt', data = strengthDF3Rank)
+sns.scatterplot(x='teamStrengthScoreGapMarginOppStWinSGWin', 
+                y = 'teamStrengthScoreGapMarginOppSt', 
+                data = strengthDF3Rank)
 
 
 #==============================================================================
@@ -1238,7 +1243,7 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 # CREATE MODEL DATASET WITH SAME COLUMN CALCULATIONS
 #==============================================================================
 
-calculateDeltas = False
+calculateDeltas = True
 returnStatCols = True
 createMatchupFields = True
 
@@ -1532,7 +1537,7 @@ forest = ExtraTreesClassifier(n_estimators=250,
 
 model = LogisticRegression(random_state = 1127)
 
-poly = PolynomialFeatures(degree = 2, interaction_only = True)
+poly = PolynomialFeatures(degree = 1, interaction_only = True)
 
 testTrainSplit = 0.2
 
@@ -1540,20 +1545,21 @@ modelResults, featureRankAll = list(), list()
 
 
 for df in ('tGamesC', 
-           'tGamesD'):
+           #'tGamesD'
+           ):
 
     modelResults, featureRankAll = list(), list()
     
     indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
                                 & (dataDict[df + 'modelData'][c].dtype.hasobject == False)
-                                & c.endswith('Delta'), 
+                                & (c.endswith('Delta') | c.startswith('A')), 
                     dataDict[df + 'modelData'].columns.tolist())
     
 
     
     
     # Model Data & initial poly fit
-    data = dataDict[df + 'modelData'][dataDict[df + 'modelData'].index.get_level_values('Season') >= 2003]
+    data = dataDict[df + 'modelData'][dataDict[df + 'modelData'].index.get_level_values('Season') >= 1985]
     poly.fit(data[indCols2])
     
     
@@ -1616,6 +1622,34 @@ for df in ('tGamesC',
 
 
 
+    featureRankAllDF = pd.DataFrame(list(chain(*featureRankAll)), columns = ['importance', 'metric', 'numFeatures'])
+    featureRankAllDF = featureRankAllDF.merge(pd.DataFrame(modelResults, 
+                                                           columns = ['numFeatures', 
+                                                                      'aucLog', 'accLog', 
+                                                                      'aucForest', 'accForest']),
+                                                left_on = 'numFeatures', right_on = 'numFeatures')
+
+    featureRankCorr = featureRankAllDF.groupby('metric')[['importance', 'aucForest']].corr()
+    
+
+    
+    featureRankAllPiv = pd.pivot_table(featureRankAllDF, columns = 'metric', index = 'numFeatures', values = 'importance')
+    featureRankAllPiv = featureRankAllPiv.merge(pd.DataFrame(modelResults, 
+                                                           columns = ['numFeatures', 
+                                                                      'aucLog', 'accLog', 
+                                                                      'aucForest', 'accForest']),
+                                                left_index = True, right_on = 'numFeatures')
+
+
+    featureRankCorr = featureRankAllPiv.loc[:10,].drop(['accLog', 'aucLog', 'accForest', 'numFeatures'], axis = 1).corr(min_periods = 25)
+    featureRankCorr = featureRankCorr.loc[:, 'aucForest']    
+    
+    featureRankCount = featureRankAllDF.groupby('metric')['numFeatures'].count()
+
+    featureRankAllPiv = featureRankAllPiv.merge(pd.DataFrame(featureRankCount), left_index = True, right_index = True)
+
+    featureRankAllPiv.sort_values('numFeatures', ascending = False, inplace = True)
+    
     fig, ax = plt.subplots(1)
     
     #sns.barplot(zip(*featureRank)[0]/max(zip(*featureRank)[0]), zip(*featureRank)[1], ax = ax)
