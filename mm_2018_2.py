@@ -33,7 +33,7 @@ from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2, RFECV
 from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
@@ -1061,154 +1061,231 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
 # STRENGTH OF SCHEDULE AND PERFORMANCE AGAINST STRONG TEAM METRICS #
 # =================================================================== #
 
-# Merge 
-for df in ('rGamesC', ):
 
-    # Create matchup stats using team season statistics
-    matchups = generateGameMatchupStats2(indexCols = ['Season', 'DayNum', 'TeamID', 'opponentID'],
-                                                                    gameDF = dataDict['{}singleTeam'.format(df)],
-                                                                    teamDF = dataDict['{}TeamSeasonStats'.format(df)],                                                                 
-                                                                    teamID1 = 'TeamID', 
-                                                                    teamID2 = 'opponentID',
-                                                                    label1 = 'team', 
-                                                                    label2 = 'opp',
-                                                                    calculateDeltas = False,
-                                                                    returnStatCols = True,
-                                                                    createMatchupFields = False,
-                                                                    )
-    
-    
-    # Merge team stat matchup with game results
-    matchups = dataDict['{}singleTeam'.format(df)].merge(matchups.reset_index(), on = ['Season', 'DayNum', 'TeamID', 'opponentID'])
-    
-    
-    #### SUBSET FOR DEVELOPMENT
-    #matchups = matchups[matchups['Season'] == 2019]
-    
-    
-   
-    # Scale oppenent score gap to use as multiplier for determining team strength    
-    matchups.loc[:, 'oppScoreGapScale'] = matchups.groupby('Season')['oppscoreGap'].apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
+df = 'rGamesC'
 
-
-    # Opponent win % * average score margin
-    #   Higher number for opponents that win frequently and win big
-    matchups.loc[:, 'oppStrength'] = matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale']
-    
-    # Opponent Win % * if team won the game (use for calculating strength of team)
-    matchups.loc[:, 'teamStrengthWin'] = matchups.loc[:, 'oppwin'] * matchups.loc[:, 'win']
-    
-
-    # Estimate team strength by oppenent win % * opponent avg scoreGap * (if team won game)
-    matchups.loc[:, 'teamStrengthOppStrengthWin'] =  matchups.loc[:, 'oppwin'] * matchups.loc[:, 'win'] * matchups.loc[:, 'oppScoreGapScale'] 
-   
-
-    # Compare game margin to opponent typical margin
-    #   Did team perform better or worse than average against opponent
-    matchups.loc[:, 'teamStrengthScoreGapMargin'] =  matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']
-    
-    
-    
-    # Reward teams for beating opponent scoring margin.  Weight by opponent win % and margin improvement
-    matchups.loc[:, 'teamStrengthScoreGapMarginOppWin'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin']
-    
-    
-    # Reward teams for beating opponent scoring margin.  Weight by (opponent win % * avg score margin) * margin improvement
-    matchups.loc[:, 'teamStrengthScoreGapMarginOppSt'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale']
-
-    
-    # Same calculation as teamStrengthMargin except only reward for winning
-    matchups.loc[:, 'teamStrengthScoreGapMarginOppStWin'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale'] * matchups.loc[:, 'win']
-    
-    
-    # Calculate team metrics for ranking
-    strengthDF = matchups.groupby(['Season', 'TeamID']).agg({'oppwin':np.mean,
-                                                             'teamStrengthWin' : np.sum,
-                                                             'oppStrength':np.mean,
-                                                             'teamStrengthOppStrengthWin' : np.sum,
-                                                             'teamStrengthScoreGapMargin' : np.mean,
-                                                             'teamStrengthScoreGapMarginOppWin' : np.sum,
-                                                             'teamStrengthScoreGapMarginOppSt' : np.mean,
-                                                             'teamStrengthScoreGapMarginOppStWin' : np.sum})
-   
-    
-    # Scale Data between 0 and 1 using minmax to avoid negatives
-    strengthDF2 = strengthDF.groupby('Season').apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
-    
-    
-    # Join the strengthDF to matchups on opponentID to calculate more advanced strength of schedule
-    # and team strength metrics using team strength metrics orginally derived from estimating opponent strength using win % and avg score margin  
-    
-    strengthFields = filter(lambda field: field not in ('oppwin', 'oppStrength'),
-                            strengthDF.columns.tolist())
-    
-
-    matchups2 = matchups.loc[:, ['Season', 'TeamID', 'opponentID', 'win', 'scoreGap']].merge((strengthDF2.reset_index()
-                                                                                            .rename(columns = {'TeamID':'opponentID'})
-                                                                                            .loc[:, ['Season', 'opponentID'] + strengthFields]
-                                                                                            ),
-                                                                left_on = ['Season', 'opponentID'],
-                                                                #right_index = True
-                                                                right_on = ['Season', 'opponentID']
+# Create matchup stats using team season statistics
+matchups = generateGameMatchupStats2(indexCols = ['Season', 'DayNum', 'TeamID', 'opponentID'],
+                                                                gameDF = dataDict['{}singleTeam'.format(df)],
+                                                                teamDF = dataDict['{}TeamSeasonStats'.format(df)],                                                                 
+                                                                teamID1 = 'TeamID', 
+                                                                teamID2 = 'opponentID',
+                                                                label1 = 'team', 
+                                                                label2 = 'opp',
+                                                                calculateDeltas = False,
+                                                                returnStatCols = True,
+                                                                createMatchupFields = False,
                                                                 )
+
+
+# Merge team stat matchup with game results
+matchups = dataDict['{}singleTeam'.format(df)].merge(matchups.reset_index(), on = ['Season', 'DayNum', 'TeamID', 'opponentID'])
+
+
+#### SUBSET FOR DEVELOPMENT
+#matchups = matchups[matchups['Season'] == 2019]
+
+
+   
+# Scale oppenent score gap to use as multiplier for determining team strength    
+matchups.loc[:, 'oppScoreGapScale'] = matchups.groupby('Season')['oppscoreGap'].apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
+
+
+# Opponent win % * average score margin
+#   Higher number for opponents that win frequently and win big
+matchups.loc[:, 'oppStrength'] = matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale']
+
+# Opponent Win % * if team won the game (use for calculating strength of team)
+matchups.loc[:, 'teamStrengthWin'] = matchups.loc[:, 'oppwin'] * matchups.loc[:, 'win']
+
+
+# Estimate team strength by oppenent win % * opponent avg scoreGap * (if team won game)
+matchups.loc[:, 'teamStrengthOppStrengthWin'] =  matchups.loc[:, 'oppwin'] * matchups.loc[:, 'win'] * matchups.loc[:, 'oppScoreGapScale'] 
+   
+
+# Compare game margin to opponent typical margin
+#   Did team perform better or worse than average against opponent
+matchups.loc[:, 'teamStrengthScoreGapMargin'] =  matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']
+
+
+
+# Reward teams for beating opponent scoring margin.  Weight by opponent win % and margin improvement
+matchups.loc[:, 'teamStrengthScoreGapMarginOppWin'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin']
+
+
+# Reward teams for beating opponent scoring margin.  Weight by (opponent win % * avg score margin) * margin improvement
+matchups.loc[:, 'teamStrengthScoreGapMarginOppSt'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale']
+
+
+# Same calculation as teamStrengthMargin except only reward for winning
+matchups.loc[:, 'teamStrengthScoreGapMarginOppStWin'] = (matchups.loc[:, 'oppscoreGap'] + matchups.loc[:, 'scoreGap']) * matchups.loc[:, 'oppwin'] * matchups.loc[:, 'oppScoreGapScale'] * matchups.loc[:, 'win']
+
+
+# Calculate team metrics for ranking
+strengthDF = matchups.groupby(['Season', 'TeamID']).agg({'oppwin':np.mean,
+                                                         'teamStrengthWin' : np.sum,
+                                                         'oppStrength':np.mean,
+                                                         'teamStrengthOppStrengthWin' : np.sum,
+                                                         'teamStrengthScoreGapMargin' : np.mean,
+                                                         'teamStrengthScoreGapMarginOppWin' : np.sum,
+                                                         'teamStrengthScoreGapMarginOppSt' : np.mean,
+                                                         'teamStrengthScoreGapMarginOppStWin' : np.sum})
+   
+
+# Scale Data between 0 and 1 using minmax to avoid negatives
+strengthDF2 = strengthDF.groupby('Season').apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
+
+
+# Join the strengthDF to matchups on opponentID to calculate more advanced strength of schedule
+# and team strength metrics using team strength metrics orginally derived from estimating opponent strength using win % and avg score margin  
+
+strengthFields = filter(lambda field: field not in ('oppwin', 'oppStrength'),
+                        strengthDF.columns.tolist())
+
+
+matchups2 = matchups.loc[:, ['Season', 'TeamID', 'opponentID', 'win', 'scoreGap']].merge((strengthDF2.reset_index()
+                                                                                        .rename(columns = {'TeamID':'opponentID'})
+                                                                                        .loc[:, ['Season', 'opponentID'] + strengthFields]
+                                                                                        ),
+                                                            left_on = ['Season', 'opponentID'],
+                                                            #right_index = True
+                                                            right_on = ['Season', 'opponentID']
+                                                            )
+
+
+# Rename all teamStrength columns to opponentStrength since metrics now reflect the opponent
+matchups2.rename(columns = dict(map(lambda field: (field, field.replace('team', 'opp')), strengthFields)), inplace = True)
+
+
+# New oppoenent Strength metrics average of "opp" column
+oppFields = filter(lambda field: field.startswith('opp') & (field != 'opponentID'),
+               matchups2.columns.tolist())
+
+# Calculate mean for all opponent strength metrics for ranking
+fieldAggDict = dict(zip(oppFields, repeat(np.mean, len(oppFields))))
+
+
+# New team strength Metrics = (win * opponent strength), (scoreGap * opponent strength), (win * scoreGap * opponent strength)
+for field in oppFields:
+    matchups2.loc[:, '{}Win2'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'win']
+    matchups2.loc[:, '{}SG'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap']
+    matchups2.loc[:, '{}SGWin'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap'] * matchups2.loc[:, 'win']
+    
+
+# Team strength fields
+tsFields = filter(lambda field: field.startswith('team') & (field != 'TeamID'),
+                  matchups2.columns.tolist())
+
+
+# Sum all team strength metrics for ranking
+fieldAggDict.update(dict(zip(tsFields, repeat(np.sum, len(tsFields)))))
+    
+
+# Create summary datafarme of new metrics for each team+season
+strengthDF3 = matchups2.groupby(['Season', 'TeamID']).agg(fieldAggDict)
+
+# Merge orginal strength metrics 
+strengthDF3 = strengthDF3.merge(strengthDF, left_index = True, right_index = True)
+
+# Scale All metrics
+strengthDF3 = strengthDF3.groupby('Season').apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
+
+
+
+# Calculate Ranks
+strengthDF3Rank = strengthDF3.groupby('Season').rank(ascending = False)
+
+# Add team names
+strengthDF3Rank = strengthDF3Rank.reset_index('Season').merge(dataDict['teams'], left_index = True, right_on = 'TeamID')
+
+
+
+# Find metric with the highest correlation with winning
+    # Create matchup dataframe based on seed ranks (lookup seed stats )
+    #seedLabels = [label1 + 'seedRank', label2 + 'seedRank']
     
     
-    # Rename all teamStrength columns to opponentStrength since metrics now reflect the opponent
-    matchups2.rename(columns = dict(map(lambda field: (field, field.replace('team', 'opp')), strengthFields)), inplace = True)
-    
-    
-    # New oppoenent Strength metrics average of "opp" column
-    oppFields = filter(lambda field: field.startswith('opp') & (field != 'opponentID'),
-                   matchups2.columns.tolist())
-    
-    # Calculate mean for all opponent strength metrics for ranking
-    fieldAggDict = dict(zip(oppFields, repeat(np.mean, len(oppFields))))
-    
-    
-    # New team strength Metrics = (win * opponent strength), (scoreGap * opponent strength), (win * scoreGap * opponent strength)
-    for field in oppFields:
-        matchups2.loc[:, '{}Win2'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'win']
-        matchups2.loc[:, '{}SG'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap']
-        matchups2.loc[:, '{}SGWin'.format(field.replace('opp', 'team'))] = matchups2.loc[:, field] * matchups2.loc[:, 'scoreGap'] * matchups2.loc[:, 'win']
-        
-    
-    # Team strength fields
-    tsFields = filter(lambda field: field.startswith('team') & (field != 'TeamID'),
-                      matchups2.columns.tolist())
-    
-    
-    # Sum all team strength metrics for ranking
-    fieldAggDict.update(dict(zip(tsFields, repeat(np.sum, len(tsFields)))))
-        
-    
-    strengthDF3 = matchups2.groupby(['Season', 'TeamID']).agg(fieldAggDict)
-    
-    # Merge orginal strength metrics 
-    strengthDF3 = strengthDF3.merge(strengthDF, left_index = True, right_index = True)
-    
-    # Scale All metrics
-    strengthDF3 = strengthDF3.groupby('Season').apply(lambda field: (field - field.min()) / (field.max() - field.min())) 
-    
-    # Calculate Ranks
-    strengthDF3Rank = strengthDF3.groupby('Season').rank(ascending = False)
-    
-    # Add team names
-    strengthDF3Rank = strengthDF3Rank.reset_index('Season').merge(dataDict['teams'], left_index = True, right_on = 'TeamID')
-    
-# use 'teamStrengthScoreGapMarginOppStWin' as teamstrength since it has the highest feature importance correlation with model auc
+tsFields2 = filter(lambda field: field.startswith('team') & (field != 'TeamID'),
+                  strengthDF3.columns.tolist())
+
+
+# Rename strength fields to opp[name] for joining opponent strength metrics
+oppRenameDict = dict(
+                    map(lambda field: (field, 'opp{}'.format(field)), tsFields2)
+                    )
+
+# Add TeamID to rename Dict
+oppRenameDict.update({'TeamID':'opponentID'})
+
+
+# Create initial matchup dataframe with base team
+strengthMatchups = matchups.loc[:, ['Season', 'TeamID', 'opponentID', 'win', 'scoreGap']].merge(strengthDF3.loc[:, tsFields2]
+                                                                                        ,
+                                                            left_on = ['Season', 'TeamID'],
+                                                            right_index = True
+                                                            )
+
+# Join opponent metrics to strengthMatchups
+strengthMatchups = strengthMatchups.merge((strengthDF3.loc[:, tsFields2]
+                                                      .reset_index()
+                                                      .rename(columns = oppRenameDict)),
+                                            left_on = ['Season', 'opponentID'],
+                                            right_on = ['Season', 'opponentID']
+                                            )
+
+
+# Calculate delta for each metric & boolean for if team is greater than opponent
+for teamMetric, oppMetric in oppRenameDict.iteritems():
+    if teamMetric != 'TeamID':
+        strengthMatchups.loc[:, '{}Delta'.format(teamMetric)] = (strengthMatchups.loc[:, teamMetric] - strengthMatchups.loc[:, oppMetric])
+        strengthMatchups.loc[:, '{}DeltaBool'.format(teamMetric)] = (strengthMatchups.loc[:, '{}Delta'.format(teamMetric)] > 0) * 1 
+
+
+# Perform Correlation Analysis 
+strengthCorrColumns = filter(lambda field: field.endswith('DeltaBool') | (field in ('win')),
+                             strengthMatchups.columns.tolist())
+
+strengthMetricCorr = strengthMatchups.loc[:, strengthCorrColumns].corr()
+
+strengthMetricCorr = pd.DataFrame(strengthMetricCorr.loc[:, ['win']].drop(['win'], axis = 0))
+
+strengthMetricCorr.loc[:, 'pctRank'] = MinMaxScaler().fit_transform(strengthMetricCorr.loc[:,'win'].values.reshape(-1, 1))
+
+strengthMetricCorr.sort_values('win', inplace = True, ascending = False)
+
+sns.barplot(x = strengthMetricCorr.index.get_values(), y= strengthMetricCorr.loc[:,'pctRank'])
+
+
+
+### Using just WinsWins2 gets withing 1% of best correlation --> use teamStrengthWinWin2 metric as team Strength Metric
+
+
+# use 'teamStrengthWinWin2' as teamstrength since it highest correlation with Wins
 for topN in (10, 25, 50):
-    strengthDF3.loc[:, 'wins{}'.format(topN)] = matchups.loc[matchups.groupby('Season')['teamStrengthScoreGapMarginOppStWin'].rank(ascending = False) <= topN, :].groupby(['Season', 'TeamID']).agg({'win':np.sum})
+    strengthDF3.loc[:, 'wins{}'.format(topN)] = matchups2.loc[matchups2.groupby('Season')['teamStrengthWinWin2'].rank(ascending = False) <= topN, :].groupby(['Season', 'TeamID']).agg({'win':np.sum})
+
+
+# Fill teams with no wins against top teams with 0
+strengthDF3.fillna(0, inplace = True)
+
+
 
 #        
 #    
-    # Merge team strength and strength of schedule metrics to rest of team season stats
-    dataDict['{}TeamSeasonStats'.format(df)] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF3, left_index = True, right_index = True)  
- 
 
+
+# Merge team strength and strength of schedule metrics to rest of team season stats
+dataDict['{}TeamSeasonStats'.format(df)] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF3, left_index = True, right_index = True)  
+dataDict['{}TeamSeasonStats'.format('rGamesD')] = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF3, left_index = True, right_index = True)  
+   
+
+
+
+fig, ax = plt.subplots(1)
 
 sns.scatterplot(x='teamStrengthScoreGapMarginOppStWinSGWin', 
                 y = 'teamStrengthScoreGapMarginOppSt', 
-                data = strengthDF3Rank)
+                data = dataDict['{}TeamSeasonStats'.format(df)][dataDict['{}TeamSeasonStats'.format(df)]['seedRank'] < 17])
 
 
 #==============================================================================
@@ -1228,7 +1305,7 @@ sns.scatterplot(x='teamStrengthScoreGapMarginOppStWinSGWin',
 # CACLUATE COLUMN SUMMARY FOR TEAM SEASON STATISTICS DATAFRAMES
 #==============================================================================
 # Create list of unique columns in all games DataFrames
-for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
+for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesD', 'rGamesC')):
     colSumDict[df] = generateDataFrameColumnSummaries(dataDict[df], returnDF=True)
                                      
                                      
@@ -1244,7 +1321,7 @@ for df in map(lambda g: g + 'TeamSeasonStats', gamesData):
 #==============================================================================
 
 calculateDeltas = True
-returnStatCols = True
+returnStatCols = False
 createMatchupFields = True
 
 for df in filter(lambda g: g.startswith('t'), gamesData):
@@ -1552,14 +1629,15 @@ for df in ('tGamesC',
     
     indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
                                 & (dataDict[df + 'modelData'][c].dtype.hasobject == False)
-                                & (c.endswith('Delta') | c.startswith('A')), 
+                                & (c.endswith('Delta') | c.startswith('A'))
+                                & (c.startswith('opp') == False), 
                     dataDict[df + 'modelData'].columns.tolist())
     
 
     
     
     # Model Data & initial poly fit
-    data = dataDict[df + 'modelData'][dataDict[df + 'modelData'].index.get_level_values('Season') >= 1985]
+    data = dataDict[df + 'modelData'][dataDict[df + 'modelData'].index.get_level_values('Season') >= 2003]
     poly.fit(data[indCols2])
     
     
@@ -1621,7 +1699,7 @@ for df in ('tGamesC',
 
 
 
-
+   
     featureRankAllDF = pd.DataFrame(list(chain(*featureRankAll)), columns = ['importance', 'metric', 'numFeatures'])
     featureRankAllDF = featureRankAllDF.merge(pd.DataFrame(modelResults, 
                                                            columns = ['numFeatures', 
@@ -1629,8 +1707,8 @@ for df in ('tGamesC',
                                                                       'aucForest', 'accForest']),
                                                 left_on = 'numFeatures', right_on = 'numFeatures')
 
-    featureRankCorr = featureRankAllDF.groupby('metric')[['importance', 'aucForest']].corr()
-    
+    featureRankCount = featureRankAllDF.groupby('metric')['numFeatures'].count()
+
 
     
     featureRankAllPiv = pd.pivot_table(featureRankAllDF, columns = 'metric', index = 'numFeatures', values = 'importance')
@@ -1639,16 +1717,19 @@ for df in ('tGamesC',
                                                                       'aucLog', 'accLog', 
                                                                       'aucForest', 'accForest']),
                                                 left_index = True, right_on = 'numFeatures')
-
-
-    featureRankCorr = featureRankAllPiv.loc[:10,].drop(['accLog', 'aucLog', 'accForest', 'numFeatures'], axis = 1).corr(min_periods = 25)
-    featureRankCorr = featureRankCorr.loc[:, 'aucForest']    
+    featureRankAllPiv.set_index('numFeatures', inplace = True)
     
-    featureRankCount = featureRankAllDF.groupby('metric')['numFeatures'].count()
+    featureRankAllPivT = featureRankAllPiv.transpose()
 
-    featureRankAllPiv = featureRankAllPiv.merge(pd.DataFrame(featureRankCount), left_index = True, right_index = True)
 
-    featureRankAllPiv.sort_values('numFeatures', ascending = False, inplace = True)
+    featureRankAllPivT = featureRankAllPivT.merge(pd.DataFrame(featureRankCount), left_index = True, right_index = True, how = 'left')
+
+
+    featureRankCorr = featureRankAllPiv.corr(min_periods = 5)
+    featureRankCorr = featureRankCorr.loc[:, ['accLog', 'aucLog', 'accForest', 'aucForest']]    
+    
+   
+
     
     fig, ax = plt.subplots(1)
     
@@ -1661,6 +1742,9 @@ for df in ('tGamesC',
     plt.plot(zip(*modelResults)[0], zip(*modelResults)[3], label = 'forest')
 
     plt.legend()
+
+
+
 # Feature Selection
 
 #==============================================================================
@@ -1669,7 +1753,9 @@ for df in ('tGamesC',
 
 modelDict = {}
 
-for df in filter(lambda g: g.startswith('t'), gamesData):
+for df in ('tGamesC', 
+           'tGamesD'
+           ):
     
     modelDict[df] = {}
     
@@ -1680,8 +1766,8 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     
     
     # Model List
-    mdlList = [ DecisionTreeClassifier(random_state = 1127), 
-                RandomForestClassifier(random_state = 1127),
+    mdlList = [ ExtraTreesClassifier(n_estimators = 50, random_state = 1127), 
+                RandomForestClassifier(n_estimators = 50, random_state = 1127),
                 LogisticRegression(random_state = 1127),
                 KNeighborsClassifier(),
                 SVC(random_state = 1127, probability = True)]
@@ -1699,30 +1785,36 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     #                        ])
    
     #fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
-    fReduce = SelectPercentile(percentile = 0.5)
-    # fReduce = SelectKBest(k = 1)
+    #fReduce = SelectPercentile(percentile = 0.5)
+    fReduce = SelectKBest(k = 1)
  
     
     # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
     pipe = Pipeline([#('sScale', StandardScaler()), 
                      #('sScale', QuantileTransformer()),
-                     # ('pca',  PCA(n_components = numIndCols // 2)),
-                     ('poly', PolynomialFeatures(degree = 3, interaction_only = True)),
+                     ('scale', MinMaxScaler()),
+                     ('pca',  PCA(n_components = numIndCols // 2)),
+                     ('poly', PolynomialFeatures(degree = 2, interaction_only = True)),
                      #('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
-                     ('scale', StandardScaler()),
-                     ('fReduce', fReduce),
+#                     ('fReduce', fReduce),
                      # ('fReduce', PCA(n_components = 10)),
                      ('mdl', LogisticRegression(random_state = 1127))])
     
     
     paramGrid = [
-#                {'mdl' : [DecisionTreeClassifier(random_state = 1127), 
+#                {'mdl' : [ExtraTreesClassifier(n_estimators = 50,
+#                                               n_jobs = -1,
+#                                               random_state = 1127), 
 #                          RandomForestClassifier(random_state = 1127,
-#                                                 n_estimators = 100,
+#                                                 n_estimators = 50,
 #                                                 n_jobs = -1,
-#                                                 verbose = 0)],
+#                                                 verbose = 0),
+#                          GradientBoostingClassifier(n_estimators = 50,
+#                                                     random_state = 1127)
+#                          ],                        
 #                 'mdl__min_samples_split' : np.arange(.005, .1, .01),
-#                 'mdl__min_samples_leaf' : xrange(2, 11, 4)
+#                 'mdl__min_samples_leaf' : xrange(2, 11, 4),
+#                 'mdl__n_estimators' : [25, 50, 100, 200]
 #                    },
                     
                 {'mdl' : [LogisticRegression(random_state = 1127)],
@@ -1743,12 +1835,9 @@ for df in filter(lambda g: g.startswith('t'), gamesData):
     # Update paramGrid with other grid search parameters that apply to all models
 #    map(lambda d: d.update({'fReduce__n_features_to_select' : range(1, min(1 +  numIndCols, 26), 2)}),
 #        paramGrid)
-#    map(lambda d: d.update({'fReduce__k' : range(1,min(10, 1 + numIndCols // 2))}),
-#        paramGrid)
-    map(lambda d: d.update({'fReduce__percentile' : np.arange(0.1, 0.71, 0.2)}),
-        paramGrid)
-#    map(lambda d: d.update({'fReduce__pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits)}),
-#        paramGrid)    
+#    map(lambda d: d.update({'fReduce__k' : range(1,min(20, 1 + numIndCols // 2))}), paramGrid)
+#    map(lambda d: d.update({'fReduce__percentile' : np.arange(0.01, 0.21, 0.04)}),  paramGrid)
+    map(lambda d: d.update({'pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits)}), paramGrid)    
     
     
     
