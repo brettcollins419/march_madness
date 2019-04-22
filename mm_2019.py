@@ -1044,10 +1044,12 @@ for df in ('rGamesC', 'rGamesD'):
 
   
     # Rank teams within season for each metric and use % for all teams between 0 and 1 (higher = better)
-    statsRank = dataDict[df + 'TeamSeasonStats'].groupby('Season').rank(ascending = True, pct = True)
+    # Change from sequential ranker to minmax scale to avoid unrealistic spread (4/22/19)
+#    statsRank = dataDict[df + 'TeamSeasonStats'].groupby('Season').rank(ascending = True, pct = True)
+    statsRank = dataDict[df + 'TeamSeasonStats'].groupby('Season').apply(lambda m: (m - m.min()) / (m.max() - m.min()))
     
     # Switch fields where lower values are better
-    statsRank.loc[:, rankDesc] = statsRank.loc[:, rankDesc].groupby('Season').rank(ascending = False, pct = True)
+    statsRank.loc[:, rankDesc] = 1 - statsRank.loc[:, rankDesc]
     
     # Merge ranked results with orginal team season metrics
     statsRankNames = map(lambda field: '{}Rank'.format(field), 
@@ -1213,7 +1215,6 @@ strengthMetrics = filter(lambda metric: metric.find('Strength') >= 0,
 strengthDF = matchups.groupby(['Season', 'TeamID']).agg(dict(zip(strengthMetrics, repeat(np.mean, len(strengthMetrics)))))
    
 
-    
 
 
 # Create new matchup dataframe to compare team performance in game against opponents average in game performane
@@ -1264,7 +1265,8 @@ strengthDF = strengthDF.merge(strengthDF2, left_index = True, right_index = True
 # Scale Data between 0 and 1 using minmax to avoid negatives and append values as '[metric]Rank'
 # Commented out 4/11/19
 strengthDF = strengthDF.merge(strengthDF.groupby('Season')
-                                        .rank(pct = True)
+                                        .apply(lambda m: (m - m.min()) / (m.max() - m.min()))
+#                                        .rank(pct = True)
                                         .rename(columns = dict(map(lambda field: (field, '{}Rank'.format(field)),
                                                                    strengthDF.columns.tolist()))),
                               left_index = True,
@@ -2409,6 +2411,46 @@ modelMatchups = pd.concat([modelMatchups,
 modelCols = filter(lambda col: col.find('Bin_') >= 0, modelMatchups.columns)   
 
 
+# ============================================================================
+# DEV 4/21/19
+# LOGISTIC CV MODELING
+# ============================================================================
+
+from sklearn.linear_model import LogisticRegressionCV
+
+logCV = LogisticRegressionCV(cv = 5, 
+                             scoring = 'neg_log_loss', 
+                             max_iter=100, 
+#                             solver = 'liblinear',
+                             solver = 'lbfgs'
+                             )
+
+xTrain, yTrain, xTest, yTest = testTrainSplit()
+
+
+xTrain, xTest, yTrain, yTest = train_test_split(modelMatchups[modelCols], 
+                                                modelMatchups['win'],
+                                                test_size = 0.2)
+
+season = 2018
+xTrain = modelMatchups[(modelMatchups['Season'] != season)][modelCols]
+yTrain = modelMatchups[(modelMatchups['Season'] != season)]['win']
+xTest = modelMatchups[(modelMatchups['Season'] == season)][modelCols]
+yTest = modelMatchups[(modelMatchups['Season'] == season)]['win']
+
+logCV.fit(xTrain, yTrain)
+logCV.score(xTest, yTest)
+
+x = modelAnalysis(model = logCV,
+                  data = modelMatchups,
+                  targetCol = 'win',
+                  indCols = modelCols)
+
+def modelAnalysis(model, data = [], 
+                  targetCol = None, 
+                  indCols = None, 
+                  testTrainDataList = [], 
+                  testTrainSplit = 0.2):
 
 
 #==============================================================================
@@ -2677,6 +2719,9 @@ for df in modelDict.iterkeys():
 
 
 help(combinations)
+
+
+
 
 
 # ============================================================================
