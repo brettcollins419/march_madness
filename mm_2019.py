@@ -1305,7 +1305,16 @@ sMatchupsTmodel = createMatchups(matchupDF = dataDict['tGamesCModelData'][['Seas
                                          calculateMatchup = False)
 
 
-    
+sMatchupsSingleTeam = createMatchups(matchupDF = dataDict['tGamesCsingleTeam'][['Season', 'TeamID', 'opponentID', 'win']],
+                                         statsDF = strengthDF,
+                                         teamID1 = 'TeamID', 
+                                         teamID2 = 'opponentID',
+                                         teamLabel1 = 'team',
+                                         teamLabel2 = 'opp',
+                                         returnStatCols = True,
+                                         calculateDelta = False,
+                                         calculateMatchup = False)
+
 # Calculate Deltas for independent offense vs defense metrics
 # Commented out 4/23/19
 #offenseVsDefense = [('offStrengthOppDStrength', 'defStrengthOppOStrength'),
@@ -1333,6 +1342,83 @@ sMatchupsTmodel = createMatchups(matchupDF = dataDict['tGamesCModelData'][['Seas
 deltaFilter = filter(lambda metric: metric.endswith('Delta'), strengthMatchupsTourney.columns)
 deltaFilterTModel = filter(lambda metric: metric.endswith('Delta'), sMatchupsTmodel.columns)   
 
+
+sMatchupsSingleTeam['teamspreadStrength'].hist()
+
+
+# Plot distributions of team strength metrics vs. winning team strength metrics
+nRows = int(np.ceil(len(strengthDF.columns)**0.5))
+nCols = int(np.ceil(len(strengthDF.columns)/nRows))
+
+
+fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
+for i, metric in enumerate(strengthDF.columns):
+    sns.distplot(sMatchupsSingleTeam.groupby(['Season', 'TeamID'])['team{}'.format(metric)].mean(), hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'unique')
+    sns.distplot(sMatchupsSingleTeam['team{}'.format(metric)][sMatchupsSingleTeam['win'] == 1], hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'win')
+    ax[i//nCols, i%nCols].grid(True)
+    ax[i//nCols, i%nCols].legend()
+    
+fig.tight_layout()
+fig.show()
+
+
+
+fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
+for i, metric in enumerate(strengthDF.columns):
+    sns.distplot(sMatchupsSingleTeam.groupby(['Season', 'TeamID'])['team{}'.format(metric)].mean(), hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'unique')
+    sns.distplot(sMatchupsSingleTeam['team{}'.format(metric)][sMatchupsSingleTeam['win'] == 1], hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'win')
+    ax[i//nCols, i%nCols].grid(True)
+    ax[i//nCols, i%nCols].legend()
+    
+fig.tight_layout()
+fig.show()
+
+
+
+
+fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
+for i, metric in enumerate(strengthDF.columns):
+    sns.heatmap(pd.pivot_table(sMatchupsSingleTeam.round(1),
+                   index = 'opp{}'.format(metric),
+                   columns = 'team{}'.format(metric),
+                   values = 'win',
+                   aggfunc = np.mean), 
+                annot = True, 
+                fmt='.2f',
+#                square = True,
+                cmap = 'RdYlGn',
+                linewidths = 1, 
+                linecolor = 'k',
+                ax = ax[i//nCols, i%nCols])
+    
+fig.tight_layout()
+fig.show()
+
+
+sns.heatmap(x)
+
+x = pd.pivot_table(sMatchupsSingleTeam.round(1),
+                   index = 'team{}'.format(metric),
+                   columns = 'opp{}'.format(metric),
+                   values = 'win',
+                   aggfunc = np.mean)
+
+
+pd.pivot_table(sMatchupsSingleTeam.round(1),
+               index = 'team{}'.format(metric),
+               columns = 'opp{}'.format(metric),
+               values = 'win',
+               aggfunc = np.mean)
+
+x = list(product(map(lambda metric: 'team{}'.format(metric), strengthDF.columns),
+             map(lambda metric: 'opp{}'.format(metric), strengthDF.columns))
+    )
+    
+x = sMatchupsSingleTeam.round(1)
+
+
+
+
 # Calculate metric stats based on if delta is positive it results in a win
 strengthMatchupsTourneyResults = pd.concat([strengthMatchupsTourney.groupby('Season')[deltaFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).max(),
                                             strengthMatchupsTourney.groupby('Season')[deltaFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).min(),
@@ -1349,6 +1435,7 @@ sns.boxplot(x='value', y='variable', hue = 'win', data = pd.melt(sMatchupsTmodel
 fig.tight_layout()
 ax.grid(True)
 fig.show()
+
 
 
 # Plot distributions of winning and losing results
