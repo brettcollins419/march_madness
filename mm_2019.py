@@ -1363,17 +1363,6 @@ fig.show()
 
 
 
-fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
-for i, metric in enumerate(strengthDF.columns):
-    sns.distplot(sMatchupsSingleTeam.groupby(['Season', 'TeamID'])['team{}'.format(metric)].mean(), hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'unique')
-    sns.distplot(sMatchupsSingleTeam['team{}'.format(metric)][sMatchupsSingleTeam['win'] == 1], hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'win')
-    ax[i//nCols, i%nCols].grid(True)
-    ax[i//nCols, i%nCols].legend()
-    
-fig.tight_layout()
-fig.show()
-
-
 
 
 fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
@@ -1395,20 +1384,6 @@ fig.tight_layout()
 fig.show()
 
 
-sns.heatmap(x)
-
-x = pd.pivot_table(sMatchupsSingleTeam.round(1),
-                   index = 'team{}'.format(metric),
-                   columns = 'opp{}'.format(metric),
-                   values = 'win',
-                   aggfunc = np.mean)
-
-
-pd.pivot_table(sMatchupsSingleTeam.round(1),
-               index = 'team{}'.format(metric),
-               columns = 'opp{}'.format(metric),
-               values = 'win',
-               aggfunc = np.mean)
 
 x = list(product(map(lambda metric: 'team{}'.format(metric), strengthDF.columns),
              map(lambda metric: 'opp{}'.format(metric), strengthDF.columns))
