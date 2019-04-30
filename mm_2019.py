@@ -721,7 +721,9 @@ def createMatchups(matchupDF,
                    calculateDelta = False, 
                    calculateMatchup = False, 
                    extraMatchupCols = [],
-                   returnStatCols = True,
+                   returnTeamID1StatCols = True,
+                   returnTeamID2StatCols = True,
+                   returnBaseCols = True,
                    reindex = True):
     ''' Create dataframe game matchups using team statistics to use for modeling
         & parameter selection / performance.
@@ -735,6 +737,10 @@ def createMatchups(matchupDF,
         
         Return dataframe with same number of recors as the matchupDF.
         '''
+    baseCols = matchupDF.columns.tolist()
+    team1Cols = map(lambda field: '{}{}'.format(teamLabel1, field), statsDF.columns.tolist())
+    team2Cols = map(lambda field: '{}{}'.format(teamLabel2, field), statsDF.columns.tolist())
+
     
     # Merge team statsDF on teamID1
     matchupNew = matchupDF.merge((statsDF.reset_index('TeamID')
@@ -782,34 +788,63 @@ def createMatchups(matchupDF,
     
     deltaCols = filter(lambda c: c not in matchupCols,
                        deltaCols.index.get_level_values('field'))
+    
  
     
     
     # Calculate statistic deltas if necessary
     if calculateDelta == True:       
         for col in deltaCols:
-            matchupNew.loc[:, '{}Delta'.format(col)] = (matchupNew.loc[:, '{}{}'.format(teamLabel1, col)]
-                                                        - matchupNew.loc[:, '{}{}'.format(teamLabel2, col)])
+            matchupNew.loc[:, '{}Delta'.format(col)] = (matchupNew.loc[:, '{}{}'.format(teamLabel1, col)]        
+                                                  - matchupNew.loc[:, '{}{}'.format(teamLabel2, col)])
+   
+        # Update column names
+        deltaCols = map(lambda col: '{}Delta'.format(col), deltaCols)
+    
+    else: deltaCols = []
+    
+    # Calculate matchup attributes if necessary
     if calculateMatchup == True:
         for col in list(set(matchupCols + extraMatchupCols)):
             matchupNew.loc[:, '{}Matchup'.format(col)] = pd.Series(createMatchupField(matchupNew, 
                                                                                        '{}{}'.format(teamLabel1, col), 
                                                                                        '{}{}'.format(teamLabel2, col), sort = False))
-            
-    if returnStatCols == True:
-        return matchupNew
-    
-    # Don't return stat cols
-    else:
-        deltaReturnCols = filter(lambda c: (c.endswith('Delta')) | (c.endswith('Matchup')) | (c in colCount[colCount['field'] != 2].index.get_level_values('field')),
-                                                       matchupNew.columns.tolist())
-        
-        
-        return matchupNew.loc[:, deltaReturnCols]
     
 
+         # Update column names
+        matchupCols = map(lambda col: '{}Delta'.format(col), list(set(matchupCols + extraMatchupCols)))   
     
-    return matchupNew
+    else: matchupCols = []
+        
+    
+    
+    # Compile columns to return
+    returnCols = list((baseCols * returnBaseCols) 
+                        + (team1Cols * returnTeamID1StatCols) 
+                        + (team2Cols * returnTeamID2StatCols) 
+                        + deltaCols 
+                        + matchupCols
+                        )
+    
+    
+    
+    return matchupNew[returnCols]
+    
+        
+#    if returnStatCols == True:
+#        return matchupNew
+#    
+#    # Don't return stat cols
+#    else:
+#        deltaReturnCols = filter(lambda c: (c.endswith('Delta')) | (c.endswith('Matchup')) | (c in colCount[colCount['field'] != 2].index.get_level_values('field')),
+#                                                       matchupNew.columns.tolist())
+#        
+#        
+#        return matchupNew.loc[:, deltaReturnCols]
+#    
+#
+#    
+#    return matchupNew
 
 
 
@@ -1217,50 +1252,6 @@ strengthDF = matchups.groupby(['Season', 'TeamID']).agg(dict(zip(strengthMetrics
    
 
 
-## COMMENTED OUT 4/23/19: comparison against opponents opponents doubles back onto self
-# Create new matchup dataframe to compare team performance in game against opponents average in game performane
-    # Example: How many points did the offense score relative to season average versus how many points opponent defense gives up relative to the team scoring average
-#matchups = createMatchups(matchupDF = dataDict['{}singleTeam'.format(df)],
-#                           statsDF = dataDict['{}TeamSeasonStats'.format(df)].merge(strengthDF, 
-#                                                                                    left_index = True, 
-#                                                                                    right_index = True)
-#                                                )
-#
-## How many points did the offense score relative to season average versus how many points opponent defense gives up relative to the team scoring average
-#matchups.loc[:, 'offStrength2'] = (matchups.loc[:, 'Score'] - matchups.loc[:, 'teamScore']) - matchups.loc[:, 'oppdefStrength']
-#
-## How many points did the defense give up relative to season average versus how many points opponent offsense scores relative to the team points allowed average
-#matchups.loc[:, 'defStrength2'] = ((matchups.loc[:, 'pointsAllowed'] - matchups.loc[:, 'teampointsAllowed']) - matchups.loc[:, 'oppoffStrength'])  * (-1.0)
-#
-#
-## How much did team win by relative to season average verus how much opponent typically wins by relative to the team score gap average
-#matchups.loc[:, 'spreadStrength2'] = (matchups.loc[:, 'scoreGap'] - matchups.loc[:, 'teamscoreGap']) - matchups.loc[:, 'oppspreadStrength']
-#
-## Win * weight of average win % of their opponents win %
-#matchups.loc[:, 'TeamStrengthOppWin2'] = matchups.loc[:, 'win'] * matchups.loc[:, 'oppTeamStrengthOppWin']
-#
-#
-## Filter columns of only new metrics (all have the name "Strength" in them and end with "2")
-#strengthMetrics = filter(lambda metric: len(re.findall('.*Strength.*2', metric)) > 0, 
-#                         matchups.columns.tolist())
-#
-#strengthDF2 = matchups.groupby(['Season', 'TeamID']).agg(dict(zip(strengthMetrics, 
-#                                                                  repeat(np.mean, len(strengthMetrics)))))
-
-
-# Scale Data between 0 and 1 using minmax to avoid negatives and append values as '[metric]Rank'
-# Commented out 4/11/19
-#strengthDF2 = strengthDF2.merge(strengthDF2.groupby('Season')
-#                                        .rank(pct = True)
-#                                        .rename(columns = dict(map(lambda field: (field, '{}Rank'.format(field)),
-#                                                                   strengthDF2.columns.tolist()))),
-#                              left_index = True,
-#                              right_index = True
-#                              )
-
-
-# Combine metrics
-#strengthDF = strengthDF.merge(strengthDF2, left_index = True, right_index = True)
 
 
 # Scale Data between 0 and 1 using minmax to avoid negatives and append values as '[metric]Rank'
@@ -1287,7 +1278,8 @@ strengthMatchupsTourney = createMatchups(matchupDF = dataDict['tGamesC'][['Seaso
                                          teamID2 = 'LTeamID',
                                          teamLabel1 = 'W',
                                          teamLabel2 = 'L',
-                                         returnStatCols = True,
+                                         returnTeamID1StatCols = True,
+                                         returnTeamID2StatCols = True,
                                          calculateDelta = True,
                                          calculateMatchup = False)
  
@@ -1300,7 +1292,8 @@ sMatchupsTmodel = createMatchups(matchupDF = dataDict['tGamesCModelData'][['Seas
                                          teamID2 = 'LTeamID',
                                          teamLabel1 = 'W',
                                          teamLabel2 = 'L',
-                                         returnStatCols = True,
+                                         returnTeamID1StatCols = True,
+                                         returnTeamID2StatCols = True,
                                          calculateDelta = True,
                                          calculateMatchup = False)
 
@@ -1311,29 +1304,10 @@ sMatchupsSingleTeam = createMatchups(matchupDF = dataDict['tGamesCsingleTeam'][[
                                          teamID2 = 'opponentID',
                                          teamLabel1 = 'team',
                                          teamLabel2 = 'opp',
-                                         returnStatCols = True,
+                                         returnTeamID1StatCols = True,
+                                         returnTeamID2StatCols = True,
                                          calculateDelta = False,
                                          calculateMatchup = False)
-
-# Calculate Deltas for independent offense vs defense metrics
-# Commented out 4/23/19
-#offenseVsDefense = [('offStrengthOppDStrength', 'defStrengthOppOStrength'),
-#                    ('offStrength', 'defStrength'),
-#                    ('offStrengthOppDStrength', 'defStrengthOppOStrength')[::-1],
-#                    ('offStrength', 'defStrength')[::-1]]
-#
-#
-#for team, opp in offenseVsDefense:
-#    newCol = '{}{}{}Delta'.format(team[:3], opp[:3], team[3:])
-#    strengthMatchupsTourney.loc[:, newCol] = (strengthMatchupsTourney.loc[:, 'W{}'.format(team)] 
-#                                                - strengthMatchupsTourney.loc[:, 'L{}'.format(opp)])
-#
-##    strengthMatchupsTS.loc[:, newCol] = (strengthMatchupsTS.loc[:, 'team{}'.format(team)] 
-##                                                - strengthMatchupsTS.loc[:, 'opp{}'.format(opp)])
-#
-#    sMatchupsTmodel.loc[:, newCol] = (sMatchupsTmodel.loc[:, 'W{}'.format(team)] 
-#                                                - sMatchupsTmodel.loc[:, 'L{}'.format(opp)])
-#
 
 
 
@@ -1343,14 +1317,11 @@ deltaFilter = filter(lambda metric: metric.endswith('Delta'), strengthMatchupsTo
 deltaFilterTModel = filter(lambda metric: metric.endswith('Delta'), sMatchupsTmodel.columns)   
 
 
-sMatchupsSingleTeam['teamspreadStrength'].hist()
 
-
-# Plot distributions of team strength metrics vs. winning team strength metrics
 nRows = int(np.ceil(len(strengthDF.columns)**0.5))
 nCols = int(np.ceil(len(strengthDF.columns)/nRows))
 
-
+# Plot distributions of tourament team strength metrics vs. winning team strength metrics
 fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
 for i, metric in enumerate(strengthDF.columns):
     sns.distplot(sMatchupsSingleTeam.groupby(['Season', 'TeamID'])['team{}'.format(metric)].mean(), hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'unique')
@@ -1364,10 +1335,10 @@ fig.show()
 
 
 
-
+# Plot heat maps of win % by metric bins
 fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
 for i, metric in enumerate(strengthDF.columns):
-    sns.heatmap(pd.pivot_table(sMatchupsSingleTeam.round(1),
+    sns.heatmap(pd.pivot_table(sMatchupsSingleTeam.applymap(lambda p: round(p*20, 0)/ 20),
                    index = 'opp{}'.format(metric),
                    columns = 'team{}'.format(metric),
                    values = 'win',
@@ -1379,17 +1350,43 @@ for i, metric in enumerate(strengthDF.columns):
                 linewidths = 1, 
                 linecolor = 'k',
                 ax = ax[i//nCols, i%nCols])
+ 
+
+if len(ax.flatten()) > len(strengthDF.columns):
+    for i in range(len(strengthDF.columns), len(ax.flatten())):
+        ax.flatten()[i].axis('off')
+    
     
 fig.tight_layout()
 fig.show()
 
 
 
-x = list(product(map(lambda metric: 'team{}'.format(metric), strengthDF.columns),
-             map(lambda metric: 'opp{}'.format(metric), strengthDF.columns))
-    )
+# Plot # of games by metric bins
+fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
+for i, metric in enumerate(strengthDF.columns):
+    sns.heatmap(pd.pivot_table(sMatchupsSingleTeam.applymap(lambda p: round(p*20, 0)/ 20),
+                   index = 'opp{}'.format(metric),
+                   columns = 'team{}'.format(metric),
+                   values = 'win',
+                   aggfunc = len), 
+                annot = True, 
+                fmt='.0f',
+#                square = True,
+                cmap = 'RdYlGn',
+                linewidths = 1, 
+                linecolor = 'k',
+                ax = ax[i//nCols, i%nCols])
+ 
+
+if len(ax.flatten()) > len(strengthDF.columns):
+    for i in range(len(strengthDF.columns), len(ax.flatten())):
+        ax.flatten()[i].axis('off')
     
-x = sMatchupsSingleTeam.round(1)
+    
+fig.tight_layout()
+fig.show()
+
 
 
 
@@ -1414,34 +1411,26 @@ fig.show()
 
 
 # Plot distributions of winning and losing results
-nRows = int(np.ceil(len(deltaFilterTModel)**0.5))
-nCols = int(np.ceil(len(deltaFilterTModel)/nRows))
-
-
 fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
-for i, metric in enumerate(deltaFilterTModel):
+for i, metric in enumerate(deltaFilter):
     sns.distplot(sMatchupsTmodel[metric][sMatchupsTmodel['win'] == 1], hist = False, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'win')
     sns.distplot(sMatchupsTmodel[metric][sMatchupsTmodel['win'] == 0], hist = False, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'loss')
     ax[i//nCols, i%nCols].grid(True)
     ax[i//nCols, i%nCols].legend()
-    
 fig.tight_layout()
 fig.show()
 
 
 
 # Plot distributions of winning and losing results metric deltas
-nRows = int(np.ceil(len(deltaFilter)**0.5))
-nCols = int(np.ceil(len(deltaFilter)/nRows))
-
 fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
 for i, metric in enumerate(deltaFilter):
     sns.distplot(strengthMatchupsTourney[metric], hist = True, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'delta')
     ax[i//nCols, i%nCols].grid(True)
     ax[i//nCols, i%nCols].legend()
-    
 fig.tight_layout()
 fig.show()
+
 
 # Plot distributions of winning and losing results metric deltas on Single Plot
 fig, ax = plt.subplots(1, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
@@ -1454,61 +1443,12 @@ ax.set_xlabel('Metric Delta')
 fig.tight_layout()
 fig.show()
 
-# Plot all actual metrics for winning and losing team as distrbutions
-#nRows = int(np.ceil(len(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter))**0.5))
-#nCols = int(np.ceil(len(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter))/nRows))
-#
-#fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
-#for i, metric in enumerate(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter)):
-#    sns.distplot(strengthMatchupsTourney['W{}'.format(metric.replace('Delta', ''))], hist = False, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'win')
-#    sns.distplot(strengthMatchupsTourney['L{}'.format(metric.replace('Delta', ''))], hist = False, ax = ax[i//nCols, i%nCols], kde_kws={"shade": True}, label = 'loss')
-#    ax[i//nCols, i%nCols].grid(True)
-#    ax[i//nRows, i%nCols].legend()
-#    
-#fig.tight_layout()
-#fig.show()
 
 
 
-
-# Plot all actual metrics for winning and losing team as scatterplot
-nRows = int(np.ceil(len(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter))**0.5))
-nCols = int(np.ceil(len(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter))/nRows))
-
-fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
-for i, metric in enumerate(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter)):
-    sns.scatterplot(strengthMatchupsTourney['W{}'.format(metric.replace('Delta', ''))], 
-                    strengthMatchupsTourney['L{}'.format(metric.replace('Delta', ''))], 
-                    ax = ax[i//nCols, i%nCols]
-                    )
-    ax[i//nCols, i%nCols].grid(True)
-    ax[i//nRows, i%nCols].legend()
-    
-fig.tight_layout()
-fig.show()
-
-
-# Plot all actual metrics for winning team and metric delta as scatterplot
-nRows = int(np.ceil(len(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter))**0.5))
-nCols = int(np.ceil(len(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter))/nRows))
-
-fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
-for i, metric in enumerate(filter(lambda metric: not(metric.startswith('offdef') | metric.startswith('defoff')), deltaFilter)):
-    sns.scatterplot(strengthMatchupsTourney['W{}'.format(metric.replace('Delta', ''))], 
-                    strengthMatchupsTourney[metric], 
-                    ax = ax[i//nCols, i%nCols]
-                    )
-    ax[i//nCols, i%nCols].grid(True)
-    ax[i//nRows, i%nCols].legend()
-    
-fig.tight_layout()
-fig.show()
 
 
 # Plot all actual metrics for winning team and metric delta as box and whisker plot
-nRows = int(np.ceil(len(deltaFilter)**0.5))
-nCols = int(np.ceil(len(deltaFilter)/nRows))
-
 fig, ax = plt.subplots(nrows = nRows, ncols = nCols, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
 for i, metric in enumerate(deltaFilter):
     sns.boxplot(strengthMatchupsTourney['W{}'.format(metric.replace('Delta', ''))].round(1), 
@@ -1528,40 +1468,40 @@ interactionMetrics = map(lambda m: ('W{}'.format(m.replace('Delta', '')), m), de
 #                                  filter(lambda c: c.endswith('Delta'), sMatchupsTmodel.columns)))
 
 # Iterate through interactions
-deltaInterFilter = []
-for w, d in interactionMetrics:
-    strengthMatchupsTourney.loc[:, '{}DeltaInter'.format(w)] = sMatchupsTmodel[w] * sMatchupsTmodel[d]
-    
-
-deltaInterFilter = map(lambda m: '{}DeltaInter'.format(m[0]), interactionMetrics)
-
-
-# Plot distributions of winning and losing results metric deltas on Single Plot
-fig, ax = plt.subplots(1, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
-for i, metric in enumerate(deltaInterFilter):
-    sns.distplot(strengthMatchupsTourney[metric], hist = False, kde_kws={"shade": True}, ax = ax, label = metric)
-ax.grid(True)
-ax.legend()
-ax.set_xlabel('Metric Delta')
-    
-fig.tight_layout()
-fig.show()
-
-
-
-# Calculate metric stats based on if delta is positive it results in a win
-strengthMatchupsTourneyResults = pd.concat([strengthMatchupsTourney.groupby('Season')[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).max(),
-                                            strengthMatchupsTourney.groupby('Season')[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).min(),
-                                            strengthMatchupsTourney.groupby('Season')[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).mean(),
-                                            strengthMatchupsTourney[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d)))
-                                            ], axis = 1)
-strengthMatchupsTourneyResults.rename(columns = {0:'season_max', 1:'season_min', 2:'season_mean', 3:'overall_mean'}, inplace = True)
+#deltaInterFilter = []
+#for w, d in interactionMetrics:
+#    strengthMatchupsTourney.loc[:, '{}DeltaInter'.format(w)] = sMatchupsTmodel[w] * sMatchupsTmodel[d]
+#    
+#
+#deltaInterFilter = map(lambda m: '{}DeltaInter'.format(m[0]), interactionMetrics)
+#
+#
+## Plot distributions of winning and losing results metric deltas on Single Plot
+#fig, ax = plt.subplots(1, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
+#for i, metric in enumerate(deltaInterFilter):
+#    sns.distplot(strengthMatchupsTourney[metric], hist = False, kde_kws={"shade": True}, ax = ax, label = metric)
+#ax.grid(True)
+#ax.legend()
+#ax.set_xlabel('Metric Delta')
+#    
+#fig.tight_layout()
+#fig.show()
 
 
+#
+## Calculate metric stats based on if delta is positive it results in a win
+#strengthMatchupsTourneyResults = pd.concat([strengthMatchupsTourney.groupby('Season')[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).max(),
+#                                            strengthMatchupsTourney.groupby('Season')[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).min(),
+#                                            strengthMatchupsTourney.groupby('Season')[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))).mean(),
+#                                            strengthMatchupsTourney[deltaFilter + deltaInterFilter].agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d)))
+#                                            ], axis = 1)
+#strengthMatchupsTourneyResults.rename(columns = {0:'season_max', 1:'season_min', 2:'season_mean', 3:'overall_mean'}, inplace = True)
+#
 
 
 
-# ###### DEV Create bins out of strength delta metrics and analyze win rate by bin
+
+# Create bins out of strength delta metrics and analyze win rate by bin
 kBins = KBinsDiscretizer(n_bins=10, encode='ordinal', strategy='quantile')
 
 strengthBins = pd.DataFrame(kBins.fit_transform(sMatchupsTmodel[deltaFilterTModel]),
@@ -1578,6 +1518,7 @@ strengthBinsWins = (strengthBinsMelt.groupby(['metric', 'bin'])
                                     .rename(columns = {'win':'winPct'})
                                     .reset_index('bin')
                                     )
+
 
 # Perform linear regression on all metrics to determine which one has the strongest relationship
 lm = LinearRegression()
@@ -1623,19 +1564,7 @@ fig.show()
 
 
 
-# Boxplot of results
-#fig, ax = plt.subplots(1, figsize = (10, 6))
-#sns.boxplot(x = 'accuracy', 
-#            y = 'metric', 
-#            orient = 'h', 
-#            data = pd.melt(strengthMatchupsTourney.groupby('Season')[deltaFilter]
-#                                                    .agg(lambda d: len(filter(lambda g: g > 0, d)) / len(filter(lambda g: g != 0, d))), 
-#                            var_name = 'metric', 
-#                            value_name = 'accuracy'), 
-#            ax = ax)
-#            
-#ax.grid(True)
-#fig.tight_layout()
+###
 
 
 
@@ -2537,6 +2466,41 @@ for df in ('tGamesC',
 
 
 
+
+# =============================================================================
+# FEATURE IMPORTANCE DEV 4/25/19 
+# =============================================================================
+    
+sMatchupsSingleTeam2 = createMatchups(matchupDF = dataDict['tGamesCsingleTeam'][['Season', 'TeamID', 'opponentID', 'win']],
+                                         statsDF = strengthDF,
+                                         teamID1 = 'TeamID', 
+                                         teamID2 = 'opponentID',
+                                         teamLabel1 = 'team',
+                                         teamLabel2 = 'opp',
+                                         returnTeamID1StatCols = True,
+                                         returnTeamID2StatCols = False,
+                                         calculateDelta = True,
+                                         calculateMatchup = False)
+
+poly = PolynomialFeatures(degree = 2, interaction_only = True)
+
+sMatchupsSingleTeam2 = pd.concat([pd.DataFrame(poly.fit_transform(sMatchupsSingleTeam2.set_index(['Season', 'TeamID', 'opponentID', 'win'])),
+                                               columns = poly.get_feature_names(sMatchupsSingleTeam2.set_index(['Season', 'TeamID', 'opponentID', 'win']).columns)
+                                               ),
+                                    sMatchupsSingleTeam2[['Season', 'TeamID', 'opponentID', 'win']]
+                                    ],
+                                    axis = 1).set_index(['Season', 'TeamID', 'opponentID', 'win'])
+
+forest = ExtraTreesClassifier(n_estimators=250,
+                              random_state=1127)
+rfecv = RFECV(estimator = forest, cv = 5, scoring = 'neg_log_loss', step = 1, njobs = -1)
+
+import pickle
+pickle.dump(rfecv, open('C:\\Users\\u00bec7\\Desktop\\personal\\march_madness_ml\\models\\rfecv_20190426.pkl', 'wb'))
+
+dir(rfecv)
+
+rfecv.fit(sMatchupsSingleTeam2, sMatchupsSingleTeam2.index.get_level_values('win'))
 
 # =============================================================================
 # BINNING AND ENCODING FEATURES FOR MODELING
