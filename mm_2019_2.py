@@ -44,7 +44,7 @@ from sklearn.pipeline import Pipeline, FeatureUnion
 from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2, RFECV
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
-from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.linear_model import LogisticRegression, LinearRegression, LogisticRegressionCV
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
 from sklearn.naive_bayes import GaussianNB
@@ -128,6 +128,27 @@ execfile('{}\\030_mm_team_season_metrics.py'.format(pc['repo']))
 execfile('{}\\040_mm_seeds_ordinals_conferences.py'.format(pc['repo']))
 
 
+### ###########################################################################
+### ##################### MAP TEAM CONFERENCES ################################
+### ###########################################################################
+
+
+for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
+    
+    dataDict[df].loc[:, 'ConfAbbrev'] = (
+            dataDict['teamConferences'].set_index(['Season', 'TeamID'])['ConfAbbrev']
+            )
+    
+    # New column with all small conferences grouped together
+    dataDict[df].loc[:, 'confGroups'] = (
+            map(lambda conf: conf if conf in 
+                ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
+                else 'other',
+                dataDict[df]['ConfAbbrev'].values.tolist())
+            )
+    
+        
+
 
 
 
@@ -147,7 +168,8 @@ matchups = createMatchups(matchupDF = dataDict['{}singleTeam'.format(df)],
 
 
 
-# Offense and defence performance: points scored and allowed against opponent compared to opponent averages
+# Offense and defence performance: 
+#   points scored and allowed against opponent compared to opponent averages
 #   Invert defense metric to make a higher number better (postive = allowed fewer points in game than opponent average)
 matchups.loc[:, 'offStrength'] = (
         matchups['Score'] - matchups['opppointsAllowed']
@@ -157,37 +179,65 @@ matchups.loc[:, 'defStrength'] = (
         matchups['pointsAllowed'] - matchups['oppScore']
         )  * (-1.0)
 
+# How much did opponent win/lose by compared to their average
 matchups.loc[:, 'spreadStrength'] = (
-        matchups['scoreGap'] - matchups['oppscoreGap']
+        matchups['scoreGap'] - (matchups['oppscoreGap'] * -1.0)
+        )
+
+
+# How much did team win/lose by versus how much they should have
+#   based on averages
+matchups.loc[:, 'spreadStrength2'] = (
+        matchups['scoreGap'] 
+            - (matchups['teamScore'] - matchups['opppointsAllowed'])
         )
 
 
 
-# Apply weight to offense and defense metrics by multiplying by opponent rank based on points allowed / points scored
-matchups.loc[:, 'offStrengthOppDStrength'] = (
-        matchups['offStrength'] * matchups['opppointsAllowed']
+# Weighted metrics (higher is better)
+matchups.loc[:, 'offStrengthRatio'] = (
+        matchups['offStrength'] * (1/ matchups['opppointsAllowed'])
         )
-matchups.loc[:, 'defStrengthOppOStrength'] = (
+
+
+matchups.loc[:, 'defStrengthRatio'] = (
         matchups['defStrength'] * matchups['oppScore']
         )
-matchups.loc[:, 'spreadStrengthOppStrength'] = (
+
+
+matchups.loc[:, 'spreadStrengthRatio'] = (
         matchups['spreadStrength'] * matchups['oppscoreGap']
         )
 
 
+matchups.loc[:, 'spreadStrengthRatio2'] = (
+        matchups['spreadStrength2'] * matchups['oppscoreGap']
+        )
+
+
+
+# Opponent strength Metrics
+matchups.loc[:, 'oppStrength'] = (
+        (matchups['oppscoreGap'] * matchups['oppwin'])
+        )
+
+matchups.loc[:, 'oppStrengthWin'] = (
+        (matchups['oppscoreGapWin'] * matchups['oppwin'])
+        )
+
+
+# Identify strength columns for aggregation and calculating team performance
+strengthMetrics = filter(lambda metric: metric.find('Strength') >= 0, 
+                         matchups.columns.tolist())
+
+
+# Strength metrics incorporating game outcome
 # Opponent Win % * if team won the game (use for calculating strength of team)
-matchups.loc[:, 'TeamStrengthOppWin'] = (
-        matchups['oppwin'] * matchups['win']
-        )
+for metric in strengthMetrics + ['oppwin']:
+    matchups.loc[:, '{}Win'.format(metric)] = (
+            matchups[metric] * matchups['win']
+            )
 
-
-matchups.loc[:, 'TeamStrengthOppStrength'] = (
-        matchups['win'] * (matchups['oppscoreGapWin'] * matchups['oppwin'])
-        )
-
-
-
-# Calculate team metrics for ranking
 
 # Identify strength columns for aggregation and calculating team performance
 strengthMetrics = filter(lambda metric: metric.find('Strength') >= 0, 
@@ -202,9 +252,6 @@ strengthDF = (matchups.groupby(['Season', 'TeamID'])
                 )
    
 
-
-
-
 # Scale Data between 0 and 1 using minmax to avoid negatives and append values as '[metric]Rank'
 # Change from merge to just replace scaled data (4/23/19)
 strengthDF = (strengthDF.groupby('Season')
@@ -212,19 +259,11 @@ strengthDF = (strengthDF.groupby('Season')
                         )
 
 
-# Create interaction metrics
-poly = PolynomialFeatures(degree=2, include_bias = False)
-
-strengthDFI = pd.DataFrame(poly.fit_transform(strengthDF),
-                           columns = poly.get_feature_names(strengthDF.columns)
-                           )
-
-strengthDFI.index = strengthDF.index
 
 # Create MatchUps of Tournament Games to determine which strength metrics
 # Has the best performance, and which one to use for ranking teams
 matchups = createMatchups(matchupDF = dataDict['tGamesCsingleTeam'][['Season', 'TeamID', 'opponentID', 'win']],
-                                         statsDF = strengthDFI,
+                                         statsDF = strengthDF,
                                          teamID1 = 'TeamID', 
                                          teamID2 = 'opponentID',
                                          teamLabel1 = 'team',
@@ -251,9 +290,13 @@ rfecv = RFECV(lg, cv = 5)
 gb.fit(matchups, matchups.index.get_level_values('win'))
 
 gb.feature_importances_
+
 gb.score(matchups, matchups.index.get_level_values('win'))
 
 dir(rfecv)
+
+
+rfecv.fit(matchups, matchups.index.get_level_values('win'))
 
 rfecv.ranking_
 

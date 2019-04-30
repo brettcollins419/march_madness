@@ -106,26 +106,7 @@ for df in ('rGamesC', 'rGamesD'):
     
 
 
-### ###########################################################################
-### ##################### MAP TEAM CONFERENCES ################################
-### ###########################################################################
 
-
-for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
-    
-    dataDict[df].loc[:, 'ConfAbbrev'] = (
-            dataDict['teamConferences'].set_index(['Season', 'TeamID'])['ConfAbbrev']
-            )
-    
-    # New column with all small conferences grouped together
-    dataDict[df].loc[:, 'confGroups'] = (
-            map(lambda conf: conf if conf in 
-                ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
-                else 'other',
-                dataDict[df]['ConfAbbrev'].values.tolist())
-            )
-    
-        
   
     
 ### ###########################################################################
