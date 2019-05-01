@@ -58,7 +58,7 @@ from sklearn.naive_bayes import GaussianNB
 # Working Directory Dictionary
 pcs = {
     'WaterBug' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
-                  'repo':'C:\\Users\\brett\\Documents\\march_madness'},
+                  'repo':'C:\\Users\\brett\\Documents\\march_madness_ml\\march_madness'},
 
     'WHQPC-L60102' : {'wd':'C:\\Users\\u00bec7\\Desktop\\personal\\march_madness_ml',
                       'repo':'C:\\Users\\u00bec7\\Desktop\\personal\\march_madness'},
@@ -251,6 +251,24 @@ strengthDF = (matchups.groupby(['Season', 'TeamID'])
                             )
                 )
    
+   
+# Plot heat map of metric bins
+fig, ax = plt.subplots(nrows = 1, ncols = 1, figsize = (0.9*GetSystemMetrics(0)//96, 0.8*GetSystemMetrics(1)//96))
+sns.heatmap(strengthDF.corr(),
+            annot = True, 
+            fmt='.2f',
+            mask = heatMapMask(strengthDF.corr()),
+#            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            ax = ax)
+fig.tight_layout(rect=[0,0,1,0.97])
+fig.suptitle('Correlation of Strength Metrics', fontsize = 20)
+fig.show()
+            
+sns.pairplot(strengthDF, diag_kind='hist')
+
 
 # Scale Data between 0 and 1 using minmax to avoid negatives and append values as '[metric]Rank'
 # Change from merge to just replace scaled data (4/23/19)
@@ -258,6 +276,9 @@ strengthDF = (strengthDF.groupby('Season')
                         .apply(lambda m: (m - m.min()) / (m.max() - m.min()))
                         )
 
+x, y = pcaVarCheck(strengthDF.shape[1], strengthDF)
+
+z = x.explained_variance_.to_list()
 
 
 # Create MatchUps of Tournament Games to determine which strength metrics
@@ -269,8 +290,8 @@ matchups = createMatchups(matchupDF = dataDict['tGamesCsingleTeam'][['Season', '
                                          teamLabel1 = 'team',
                                          teamLabel2 = 'opp',
                                          returnBaseCols = True,
-                                         returnTeamID1StatCols = False,
-                                         returnTeamID2StatCols = False,
+                                         returnTeamID1StatCols = True,
+                                         returnTeamID2StatCols = True,
                                          calculateDelta = True,
                                          calculateMatchup = False)
 
@@ -285,7 +306,7 @@ lg = LogisticRegressionCV(penalty = 'l1', solver = 'saga', cv = 5, max_iter = 20
 
 
 
-rfecv = RFECV(lg, cv = 5)
+rfecv = RFECV(gb, cv = 5)
 
 gb.fit(matchups, matchups.index.get_level_values('win'))
 
@@ -297,8 +318,9 @@ dir(rfecv)
 
 
 rfecv.fit(matchups, matchups.index.get_level_values('win'))
-
+rfecv.score(matchups, matchups.index.get_level_values('win'))
 rfecv.ranking_
+rfecv.scoring
 
 rfecv.grid_scores_
 
