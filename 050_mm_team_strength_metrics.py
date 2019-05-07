@@ -202,8 +202,8 @@ for i, metric in enumerate(strengthDF.columns):
     ax[i//nCols, i%nCols].legend()
  
     
-if len(ax.flatten()) > len(targets) + 1:
-    for i in range(len(targets), len(ax.flatten())):
+if len(ax.flatten()) > len(strengthDF.columns):
+    for i in range(len(strengthDF.columns), len(ax.flatten())):
         ax.flatten()[i].axis('off')   
         
 fig.tight_layout(rect=[0,0,1,0.97])
@@ -392,9 +392,17 @@ sns.barplot(x = 'metric',
 
 ax.tick_params(axis='x', rotation=90)
 
+
+
+ax2 = ax.twinx()
+plt.plot((pd.melt(matchups[matchups.index.get_level_values('win') == 1])
+            .groupby('variable')
+            .agg({'value': lambda data: 
+                len(filter(lambda delta: delta > 0, data))/ len(data)})),
+        'go--', linewidth=2, markersize=12)
+
+ax2.grid()
+ax2.set_ylabel('Win %')
 fig.tight_layout(rect=[0,0,1,0.97])
 fig.suptitle('Wins Against Top N Teams Feature Rank', fontsize = 20)
 fig.show()
-
-ax2 = ax.twinx()
-plt.plot(pd.melt(matchups[matchups.index.get_level_values('win') == 1]).groupby('variable').agg({'value': lambda data: len(filter(lambda delta: delta > 0, data))/ len(data)}))
