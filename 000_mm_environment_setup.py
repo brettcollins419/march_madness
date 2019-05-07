@@ -437,15 +437,22 @@ def plotCorrHeatMap(corrData, ax = None,
 
 
 
-def heatMapMask(corrData, k = 0):
+def heatMapMask(corrData, k = 0, corner = 'upper_right'):
     
-    ''' Create array for masking upper right corner of map.
+    ''' Create array for masking upper right or lower left corner of map.
         k is the offset from the diagonal.
             if 1 returns the diagonal
         Return array for masking'''
         
-    mask = np.zeros_like(corrData) 
-    mask[np.triu_indices_from(arr = mask, k = k)] = True
+    # Mask lower left
+    if corner == 'lower_left':
+        mask = np.zeros_like(corrData) 
+        mask[np.tril_indices_from(arr = mask, k = k)] = True
+
+    # Mask upper right
+    else:
+        mask = np.zeros_like(corrData) 
+        mask[np.triu_indices_from(arr = mask, k = k)] = True
 
     return mask
 
