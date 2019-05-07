@@ -200,7 +200,12 @@ for i, metric in enumerate(strengthDF.columns):
    
     ax[i//nCols, i%nCols].grid(True)
     ax[i//nCols, i%nCols].legend()
+ 
     
+if len(ax.flatten()) > len(targets) + 1:
+    for i in range(len(targets), len(ax.flatten())):
+        ax.flatten()[i].axis('off')   
+        
 fig.tight_layout(rect=[0,0,1,0.97])
 fig.suptitle('Strength Metrics of Teams and Winning Teams', fontsize = 20)
 fig.show()
@@ -239,15 +244,15 @@ for i, metric in enumerate(strengthDF.columns):
     sns.heatmap(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], 
                 annot = True, 
                 fmt='.2f',
-#                mask = heatMapMask(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], k = 1),
+                mask = heatMapMask(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], k = -1, corner = 'lower_left'),
 #                square = True,
                 cmap = 'RdYlGn',
                 linewidths = 1, 
                 linecolor = 'k',
                 ax = ax1[i//nCols, i%nCols]
                 )
-#    ax1[i//nCols, i%nCols].invert_yaxis()
-#    ax1[i//nCols, i%nCols].invert_xaxis()
+    ax1[i//nCols, i%nCols].invert_yaxis()
+    ax1[i//nCols, i%nCols].invert_xaxis()
     ax1[i//nCols, i%nCols].set_xticklabels(
             heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'TeamID'].columns.droplevel(0)
             )
@@ -255,15 +260,15 @@ for i, metric in enumerate(strengthDF.columns):
     sns.heatmap(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], 
                 annot = heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'TeamID'], 
                 fmt='.0f',
-#                mask = heatMapMask(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], k = 1),
+                mask = heatMapMask(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], k = -1, corner = 'lower_left'),
 #                square = True,
                 cmap = 'RdYlGn',
                 linewidths = 1, 
                 linecolor = 'k',
                 ax = ax2[i//nCols, i%nCols]
                 )
-#    ax2[i//nCols, i%nCols].invert_yaxis()
-#    ax2[i//nCols, i%nCols].invert_xaxis()
+    ax2[i//nCols, i%nCols].invert_yaxis()
+    ax2[i//nCols, i%nCols].invert_xaxis()
     ax2[i//nCols, i%nCols].set_xticklabels(
             heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'TeamID'].columns.droplevel(0)
             )
@@ -373,4 +378,23 @@ featureImportanceTopNRank = pd.DataFrame(
             rfecvGB.ranking_),
         columns = ['metric', 'importance']
         ).sort_values('importance', ascending = True)
-rfecvGB.ranking_
+
+
+
+fig, ax = plt.subplots(1, 
+                       figsize = (0.9*GetSystemMetrics(0)//96, 
+                                  0.8*GetSystemMetrics(1)//96))
+
+sns.barplot(x = 'metric', 
+            y = 'importance', 
+            data = featureImportanceTopNRank.sort_values('metric'), 
+            ax = ax)
+
+ax.tick_params(axis='x', rotation=90)
+
+fig.tight_layout(rect=[0,0,1,0.97])
+fig.suptitle('Wins Against Top N Teams Feature Rank', fontsize = 20)
+fig.show()
+
+ax2 = ax.twinx()
+plt.plot(pd.melt(matchups[matchups.index.get_level_values('win') == 1]).groupby('variable').agg({'value': lambda data: len(filter(lambda delta: delta > 0, data))/ len(data)}))
