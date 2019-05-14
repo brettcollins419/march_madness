@@ -5,12 +5,11 @@ Created on Wed May 01 13:53:31 2019
 @author: u00bec7
 """
 
+
 ### ###########################################################################
-### ##################### PACKAGES ############################################
+### ################# ENVIRONMENT SETUP & DATA LOAD ###########################
 ### ###########################################################################
 
-
-from __future__ import division
 from os.path import join
 import time
 import sys
@@ -52,9 +51,9 @@ from sklearn.naive_bayes import GaussianNB
 
 
 
-#==============================================================================
-# START FUNCTIONS 
-#==============================================================================
+
+### START FUNCTIONS 
+## ############################################################################
 
 def generateDataFrameColumnSummaries(df, returnDF = False):
     '''Create summary for each column in df as a tuple:

@@ -12,6 +12,50 @@ Created on Fri Apr 26 13:25:16 2019
 import os
 import socket
 
+
+
+from __future__ import division
+from os.path import join
+import time
+import sys
+import numpy as np
+import pandas as pd
+import string
+from win32api import GetSystemMetrics
+import os
+import re
+from itertools import product, islice, chain, repeat, combinations
+from datetime import datetime
+import socket
+
+import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import Colormap
+import seaborn as sns
+
+from scipy.stats import ttest_ind
+
+from sklearn.model_selection import StratifiedKFold
+from sklearn.preprocessing import (StandardScaler, MinMaxScaler, OneHotEncoder, 
+                                   LabelEncoder, QuantileTransformer, 
+                                   KBinsDiscretizer, PolynomialFeatures)
+from sklearn.decomposition import PCA
+from sklearn.model_selection import train_test_split, GridSearchCV
+
+from sklearn.metrics import *
+from sklearn.pipeline import Pipeline, FeatureUnion
+
+# Models
+from sklearn.feature_selection import SelectKBest, SelectPercentile, chi2, RFECV
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
+from sklearn.linear_model import LogisticRegression, LinearRegression, LogisticRegressionCV
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+
+
+
 # Working Directory Dictionary
 pcs = {
     'WaterBug' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
@@ -43,7 +87,7 @@ os.chdir(pc['wd'])
 execfile('{}\\010_mm_data_load.py'.format(pc['repo']))
 
 
-
+#%%
 
 ### ###########################################################################
 ### ############### ADDITIONAL IN GAME METRICS ################################
@@ -91,7 +135,7 @@ execfile('{}\\030_mm_team_season_metrics.py'.format(pc['repo']))
 execfile('{}\\040_mm_seeds_ordinals_conferences.py'.format(pc['repo']))
 
 
-
+#%% DEV
 
 ### ###########################################################################
 ### ############################## TEAM STRENTGH METRICS ######################

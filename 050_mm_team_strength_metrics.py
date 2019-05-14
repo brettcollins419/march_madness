@@ -6,6 +6,11 @@ Created on Fri May 03 12:58:18 2019
 """
 
 
+#%% STRENGTH METRICS
+## ############################################################################
+
+
+
 df = 'rGamesC'
 
 # Create matchup stats using team season statistics
@@ -153,7 +158,7 @@ pcaStrength.fit(strengthDF)
 np.cumsum(pcaStrength.explained_variance_ratio_)
 
 
-
+#%% STRENGTH METRIC ANALYSIS
 
 # Create MatchUps of Tournament Games to determine which strength metrics
 # Has the best performance, and which one to use for ranking teams
@@ -292,25 +297,65 @@ fig2.show()
 
 
 
-
+#%% STRENGTH METRIC IMPORTANCE AND SELECTION
 
 
 # Models for getting feature importance
-gb = GradientBoostingClassifier()
-rfecvGB = RFECV(gb, cv = 5)
+treeModels = {'gb': GradientBoostingClassifier(random_state = 1127, 
+                                               n_estimators = 20),
+              'et': ExtraTreesClassifier(random_state = 1127, 
+                                         n_estimators = 20),
+              'rf': RandomForestClassifier(random_state = 1127,
+                                           n_estimators = 20)}
 
-# Fit and score feature selection
-rfecvGB.fit(matchups, matchups.index.get_level_values('win'))
-rfecvGB.score(matchups, matchups.index.get_level_values('win'))
+trainIndex, testIndex = train_test_split(range(matchups.shape[0]), 
+                                         test_size = 0.2)
 
-# Selected Feature Importances:
-featureImportance = pd.DataFrame(
-        zip(matchups.columns[rfecvGB.support_],
-            rfecvGB.estimator_.feature_importances_),
-        columns = ['metric', 'importance']
-        ).sort_values('importance', ascending = False)
+# Create recursive feature selection models for each treeModel
+rfeCVs = {k:RFECV(v, cv = 5) for k,v in treeModels.iteritems()}
+
+# Train models
+map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
+                          matchups.iloc[trainIndex,:].index.get_level_values('win'))
+    , rfeCVs.itervalues())
 
 
+# Score models on train & test data
+map(lambda tree: 
+    map(lambda idx: 
+        rfecvGB.score(matchups.iloc[idx,:], 
+                      matchups.iloc[idx,:].index.get_level_values('win')),
+        (trainIndex, testIndex)
+    )
+    , rfeCVs.itervalues())
+
+# # of features selected for each model
+map(lambda rfeCV: 
+    (rfeCV[0], rfeCV[1].n_features_)
+    , rfeCVs.iteritems())    
+    
+
+# Get selected features for each model
+featureImportance = pd.concat(
+        map(lambda rfeCV:
+            pd.DataFrame(
+                zip(repeat(rfeCV[0], sum(rfeCV[1].support_)),
+                    matchups.columns[rfeCV[1].support_],
+                    rfeCV[1].estimator_.feature_importances_),
+                columns = ['model', 'metric', 'importance']
+                ).sort_values(['model', 'importance'], ascending = [True, False])
+                , rfeCVs.iteritems())
+        , axis = 0)
+
+
+# Aggregate Feature Importance Metrics 
+featureImportanceAgg = (featureImportance.groupby('metric')
+                                         .agg({'importance':np.sum,
+                                               'model':len})
+                        ).sort_values('importance', ascending = False)    
+ 
+    
+#%% Wins Against TopN Teams
 
 # use 'spreadStrengthDelta' as teamstrength since it highest correlation with Wins in the Tournament
 # Find best metric for # of wins agains topN teams
