@@ -864,6 +864,94 @@ def independentColumnsFilter(df, excludeCols = [], includeCols = []):
     return indCols
 
 
+def treeModelsFeatureImportance(matchups):
+    '''Peform feature importance analysis using three types of tree models:
+        - Random Forest
+        - Extra Trees
+        - Gradient Boosted
+        
+        Aggregate results and return feature rank based on all three methods'''
+        
+    # Models for getting feature importance
+    treeModels = {'gb': GradientBoostingClassifier(random_state = 1127, 
+                                                   n_estimators = 20),
+                  'et': ExtraTreesClassifier(random_state = 1127, 
+                                             n_estimators = 20),
+                  'rf': RandomForestClassifier(random_state = 1127,
+                                               n_estimators = 20)}
+    
+    trainIndex, testIndex = train_test_split(range(matchups.shape[0]), 
+                                             test_size = 0.2)
+    
+    # Create recursive feature selection models for each treeModel
+    rfeCVs = {k:RFECV(v, cv = 5) for k,v in treeModels.iteritems()}      
+
+
+    
+    # Train models
+    map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
+                              matchups.iloc[trainIndex,:].index.get_level_values('win'))
+        , rfeCVs.itervalues())
+    
+    
+    # Score models on train & test data
+    map(lambda tree: 
+        map(lambda idx: 
+            tree.score(matchups.iloc[idx,:], 
+                          matchups.iloc[idx,:].index.get_level_values('win')),
+            (trainIndex, testIndex)
+        )
+        , rfeCVs.itervalues())
+    
+    # # of features selected for each model
+    map(lambda rfeCV: 
+        (rfeCV[0], rfeCV[1].n_features_)
+        , rfeCVs.iteritems())    
+        
+    
+    # Get selected features for each model
+    featureImportance = pd.concat(
+            map(lambda rfeCV:
+                pd.DataFrame(
+                    zip(repeat(rfeCV[0], sum(rfeCV[1].support_)),
+                        matchups.columns[rfeCV[1].support_],
+                        rfeCV[1].estimator_.feature_importances_),
+                    columns = ['model', 'metric', 'importance']
+                    ).sort_values(['model', 'importance'], ascending = [True, False])
+                    , rfeCVs.iteritems())
+            , axis = 0)
+    
+    
+    
+    featureRank = pd.concat(
+            map(lambda rfeCV:
+                pd.DataFrame(
+                    zip(repeat(rfeCV[0], len(rfeCV[1].ranking_)),
+                        matchups.columns,
+                        rfeCV[1].ranking_),
+                    columns = ['model', 'metric', 'ranking']
+                    ).sort_values(['model', 'ranking'], ascending = [True, True])
+                    , rfeCVs.iteritems())
+            , axis = 0)
+    
+    
+    
+    
+    # Aggregate Feature Importance Metrics 
+    featureImportanceAgg = (featureImportance.groupby('metric')
+                                             .agg({'importance':np.sum,
+                                                   'model':len})
+                            ).sort_values('importance', ascending = False)    
+     
+       
+    featureRankAgg = (featureRank.groupby('metric')
+                                 .agg({'ranking':np.mean})
+    #                             .rank()
+                            ).sort_values('ranking', ascending = True) 
+        
+    
+    return
+
 #%% ENVIRONMENT SETUP
 
 # Working Directory Dictionary
@@ -886,8 +974,8 @@ del(pcs)
 
 
 # Set up environment
-os.chdir(pc['repo'])
-from mm_functions import *
+#os.chdir(pc['repo'])
+#from mm_functions import *
 
 os.chdir(pc['wd'])
 #execfile('{}\\000_mm_environment_setup.py'.format(pc['repo']))
@@ -1523,7 +1611,7 @@ fig2.show()
 
 
 
-#%% STRENGTH METRIC IMPORTANCE AND SELECTION
+#%% TREE MODELS FOR FEATURE IMPORTANCE
 
 
 # Models for getting feature importance
@@ -1539,6 +1627,10 @@ trainIndex, testIndex = train_test_split(range(matchups.shape[0]),
 
 # Create recursive feature selection models for each treeModel
 rfeCVs = {k:RFECV(v, cv = 5) for k,v in treeModels.iteritems()}
+
+
+#%% STRENGTH METRIC IMPORTANCE AND SELECTION
+
 
 # Train models
 map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
@@ -1761,31 +1853,139 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
 #%% DEV
 ## ############################################################################
 
-### ############################## TEAM STRENTGH METRICS ######################
-### ###########################################################################
-
-execfile('{}\\050_mm_team_strength_metrics.py'.format(pc['repo']))
-
-### ###########################################################################
-### ##################### MAP TEAM CONFERENCES ################################
-### ###########################################################################
 
 
-for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
+
+
+#%% CONFERENCE AND CONFERENCE CHAMPS MATCHUPS
+## ############################################################################
+
+
+# Create tournament matchups with conferences and seed ranks
+matchups = createMatchups(
+        matchupDF = dataDict['tGamesCsingleTeam'][['Season', 'TeamID', 'opponentID', 'win']],
+        statsDF = dataDict['rGamesCTeamSeasonStats'][['confGroups', 'confChamp', 'seedRank']],
+        teamID1 = 'TeamID', 
+        teamID2 = 'opponentID',
+        teamLabel1 = 'team',
+        teamLabel2 = 'opp',
+        returnBaseCols = True,
+        returnTeamID1StatCols = True,
+        returnTeamID2StatCols = True,
+        calculateDelta = True,
+        calculateMatchup = False)
+
+
+
+# Win probability based on conferences 
+confDeltaStats = (
+        matchups.groupby(['teamconfGroups', 
+                          'teamconfChamp', 
+                          'oppconfGroups', 
+                          'oppconfChamp'])
+                 .agg({'TeamID': len,
+                       'win' : np.mean
+                   })
+                 .rename(columns = {'TeamID': 'numGames', 
+                                'win': 'winPct'})
+        )
+
     
-    dataDict[df].loc[:, 'ConfAbbrev'] = (
-            dataDict['teamConferences'].set_index(['Season', 'TeamID'])['ConfAbbrev']
-            )
     
-    # New column with all small conferences grouped together
-    dataDict[df].loc[:, 'confGroups'] = (
-            map(lambda conf: conf if conf in 
-                ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
-                else 'other',
-                dataDict[df]['ConfAbbrev'].values.tolist())
-            )
+# Remove duplicates for same conferences
+#sameConfFilter = ((confDeltaStats.index.get_level_values('teamconfGroups') == confDeltaStats.index.get_level_values('oppconfGroups'))
+#                & (confDeltaStats.index.get_level_values('teamconfChamp') == confDeltaStats.index.get_level_values('oppconfChamp'))
+#                )
+#
+#confDeltaStats.loc[sameConfFilter, 'numGames'] = confDeltaStats['numGames'] * 0.5
+#
+
+
+# Pivot data for heatmap
+confDeltaStatsPiv = pd.pivot_table(data = confDeltaStats.reset_index(), 
+                   values = ['winPct', 'numGames'], 
+                   index = ['oppconfGroups', 'oppconfChamp'], 
+                   columns = ['teamconfGroups', 'teamconfChamp'])
+
+
+
+# Heat Map of win % by conference matchups & # of games
+fig, ax = plt.subplots(nrows = 1, 
+                       ncols = 2, 
+                       figsize = (0.9*GetSystemMetrics(0)//96, 
+                                  0.8*GetSystemMetrics(1)//96))
+
+
+sns.heatmap(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], 
+            annot = True, 
+            fmt='.0%',
+            mask = heatMapMask(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], k = 1),
+            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            xticklabels = confDeltaStatsPiv.columns[confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'].droplevel(None),
+            ax = ax[0])
+
+
+
+sns.heatmap(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], 
+            annot = confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'numGames'], 
+            fmt = ".0f",
+            mask = heatMapMask(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], k = 1),
+            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            xticklabels = confDeltaStatsPiv.columns[confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'].droplevel(None),
+            ax = ax[1])
+
+fig.suptitle('Win % based on Conference Matchups (1 = Conf. Champ)', fontsize = 16)
+fig.tight_layout(rect=[0,0,1,0.95])
+fig.show()   
+
+            
     
-        
+#%% SEED RANK MATCHUPS
+## ############################################################################
+
+ 
+
+# Win probability based on seed rank
+srDeltaStats = (
+        matchups.groupby(['teamseedRank',
+                          'oppseedRank'])
+                 .agg({'TeamID': len,
+                       'win' : np.mean
+                   })
+                 .rename(columns = {'TeamID': 'numGames', 
+                                'win': 'winPct'})
+        )
 
 
+lr = LogisticRegressionCV(random_state = 1127)
 
+matchups.loc[:, 'seedRank_i'] = matchups['teamseedRank']*matchups['oppseedRank']
+
+mdlCols = ['teamseedRank', 'oppseedRank', 'seedRankDelta']
+mdlCols = ['teamseedRank', 'oppseedRank', 'seedRank_i']
+mdlCols = ['teamseedRank']
+
+
+lr.fit(matchups[mdlCols], matchups['win'])
+
+lr.score(matchups[mdlCols], matchups['win'])
+
+lr = LinearRegression()
+
+srDeltaStats.reset_index(inplace = True)
+srDeltaStats.loc[:,'sr_i'] = srDeltaStats['teamseedRank'] * srDeltaStats['oppseedRank']
+srDeltaStats.loc[:,'sr_d'] = srDeltaStats['teamseedRank'] - srDeltaStats['oppseedRank']
+
+mdlCols = ['teamseedRank', 'oppseedRank', 'sr_i']
+mdlCols = ['teamseedRank', 'oppseedRank', 'sr_d']
+
+
+lr.fit(srDeltaStats[mdlCols], srDeltaStats['winPct'], sample_weight = srDeltaStats['numGames'])
+
+lr.score(srDeltaStats[mdlCols], srDeltaStats['winPct'], sample_weight = srDeltaStats['numGames'])
