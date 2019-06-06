@@ -895,19 +895,33 @@ def treeModelsFeatureImportance(matchups):
     
     
     # Score models on train & test data
-    map(lambda tree: 
-        map(lambda idx: 
-            tree.score(matchups.iloc[idx,:], 
-                          matchups.iloc[idx,:].index.get_level_values('win')),
-            (trainIndex, testIndex)
-        )
-        , rfeCVs.itervalues())
+    modelScores = pd.DataFrame(
+                    map(lambda tree: 
+                        map(lambda idx: 
+                            round(tree.score(matchups.iloc[idx,:], 
+                                             matchups.iloc[idx,:].index.get_level_values('win'))
+                                    , 3)
+                            , (testIndex, trainIndex)
+                        )
+                        , rfeCVs.itervalues())
+                        , columns = ['test', 'train']
+                        )
     
-    # # of features selected for each model
-    map(lambda rfeCV: 
-        (rfeCV[0], rfeCV[1].n_features_)
-        , rfeCVs.iteritems())    
-        
+    # Add # of features
+    modelScores.loc[:, 'numFeatures'] = (
+            map(lambda rfeCV: 
+                rfeCV.n_features_
+                , rfeCVs.itervalues())
+                )
+    # Add model names
+    modelScores.loc[:, 'model'] = rfeCVs.keys()
+    
+    # Reverse column order
+    modelScores = modelScores[modelScores.columns[::-1]]
+    
+    # Print scores
+    print modelScores
+    
     
     # Get selected features for each model
     featureImportance = pd.concat(
@@ -921,7 +935,8 @@ def treeModelsFeatureImportance(matchups):
                     , rfeCVs.iteritems())
             , axis = 0)
     
-    
+    # Round importance values
+    featureImportance.loc[:, 'importance'] = featureImportance['importance'].round(3)
     
     featureRank = pd.concat(
             map(lambda rfeCV:
@@ -950,7 +965,7 @@ def treeModelsFeatureImportance(matchups):
                             ).sort_values('ranking', ascending = True) 
         
     
-    return
+    return featureImportanceAgg, featureRankAgg
 
 #%% ENVIRONMENT SETUP
 
@@ -1611,91 +1626,12 @@ fig2.show()
 
 
 
-#%% TREE MODELS FOR FEATURE IMPORTANCE
-
-
-# Models for getting feature importance
-treeModels = {'gb': GradientBoostingClassifier(random_state = 1127, 
-                                               n_estimators = 20),
-              'et': ExtraTreesClassifier(random_state = 1127, 
-                                         n_estimators = 20),
-              'rf': RandomForestClassifier(random_state = 1127,
-                                           n_estimators = 20)}
-
-trainIndex, testIndex = train_test_split(range(matchups.shape[0]), 
-                                         test_size = 0.2)
-
-# Create recursive feature selection models for each treeModel
-rfeCVs = {k:RFECV(v, cv = 5) for k,v in treeModels.iteritems()}
-
 
 #%% STRENGTH METRIC IMPORTANCE AND SELECTION
 
 
-# Train models
-map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
-                          matchups.iloc[trainIndex,:].index.get_level_values('win'))
-    , rfeCVs.itervalues())
-
-
-# Score models on train & test data
-map(lambda tree: 
-    map(lambda idx: 
-        tree.score(matchups.iloc[idx,:], 
-                      matchups.iloc[idx,:].index.get_level_values('win')),
-        (trainIndex, testIndex)
-    )
-    , rfeCVs.itervalues())
-
-# # of features selected for each model
-map(lambda rfeCV: 
-    (rfeCV[0], rfeCV[1].n_features_)
-    , rfeCVs.iteritems())    
-    
-
-# Get selected features for each model
-featureImportance = pd.concat(
-        map(lambda rfeCV:
-            pd.DataFrame(
-                zip(repeat(rfeCV[0], sum(rfeCV[1].support_)),
-                    matchups.columns[rfeCV[1].support_],
-                    rfeCV[1].estimator_.feature_importances_),
-                columns = ['model', 'metric', 'importance']
-                ).sort_values(['model', 'importance'], ascending = [True, False])
-                , rfeCVs.iteritems())
-        , axis = 0)
-
-
-
-featureRank = pd.concat(
-        map(lambda rfeCV:
-            pd.DataFrame(
-                zip(repeat(rfeCV[0], len(rfeCV[1].ranking_)),
-                    matchups.columns,
-                    rfeCV[1].ranking_),
-                columns = ['model', 'metric', 'ranking']
-                ).sort_values(['model', 'ranking'], ascending = [True, True])
-                , rfeCVs.iteritems())
-        , axis = 0)
-
-
-
-
-# Aggregate Feature Importance Metrics 
-featureImportanceAgg = (featureImportance.groupby('metric')
-                                         .agg({'importance':np.sum,
-                                               'model':len})
-                        ).sort_values('importance', ascending = False)    
- 
-   
-featureRankAgg = (featureRank.groupby('metric')
-                             .agg({'ranking':np.mean})
-#                             .rank()
-                        ).sort_values('ranking', ascending = True) 
-    
-
-
-
+# Use tree models to get feature importances
+featureImportanceAgg, featureRankAgg = treeModelsFeatureImportance(matchups)
 
 # Store strength metrics
 dataDict['strengthMetrics'] = strengthDF
@@ -1766,51 +1702,10 @@ matchups.set_index(['Season', 'TeamID', 'opponentID', 'win'], inplace = True)
 
 # Fit and score feature selection
 
-# Train models
-map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
-                          matchups.iloc[trainIndex,:].index.get_level_values('win'))
-    , rfeCVs.itervalues())
+# Use tree models to get feature importances
+featureImportanceAggTopN, featureRankAggTopN = treeModelsFeatureImportance(matchups)
 
 
-# Score models on train & test data
-map(lambda tree: 
-    map(lambda idx: 
-        tree.score(matchups.iloc[idx,:], 
-                      matchups.iloc[idx,:].index.get_level_values('win')),
-        (trainIndex, testIndex)
-    )
-    , rfeCVs.itervalues())
-
-# # of features selected for each model
-map(lambda rfeCV: 
-    (rfeCV[0], rfeCV[1].n_features_)
-    , rfeCVs.iteritems())  
-    
- 
-    
-    
-# Get selected features for each model
-featureImportanceTopN = pd.concat(
-        map(lambda rfeCV:
-            pd.DataFrame(
-                zip(repeat(rfeCV[0], sum(rfeCV[1].support_)),
-                    matchups.columns[rfeCV[1].support_],
-                    rfeCV[1].estimator_.feature_importances_),
-                columns = ['model', 'metric', 'importance']
-                ).sort_values(['model', 'importance'], ascending = [True, False])
-                , rfeCVs.iteritems())
-        , axis = 0)
-
-
-# Aggregate Feature Importance Metrics 
-featureImportanceTopNAgg = (featureImportanceTopN.groupby('metric')
-                                                 .agg({'importance':np.sum,
-                                                       'model':len})
-                        ).sort_values('importance', ascending = False)    
- 
-
-    
-    
     
     
 fig, ax = plt.subplots(1, 
@@ -1819,7 +1714,7 @@ fig, ax = plt.subplots(1,
 
 sns.barplot(x = 'metric', 
             y = 'importance', 
-            data = featureImportanceTopNAgg.reset_index().sort_values('metric'), 
+            data = featureImportanceAggTopN.reset_index().sort_values('metric'), 
             ax = ax)
 
 ax.tick_params(axis='x', rotation=90)
@@ -1828,7 +1723,7 @@ ax.tick_params(axis='x', rotation=90)
 
 ax2 = ax.twinx()
 plt.plot((pd.melt(matchups.loc[matchups.index.get_level_values('win') == 1, 
-                               map(lambda col: col in featureImportanceTopNAgg.index.get_level_values('metric'),
+                               map(lambda col: col in featureImportanceAggTopN.index.get_level_values('metric'),
                                    matchups.columns)])
             .groupby('variable')
             .agg({'value': lambda data: 
@@ -1875,6 +1770,8 @@ matchups = createMatchups(
         calculateDelta = True,
         calculateMatchup = False)
 
+# Set index
+matchups.set_index(['Season', 'TeamID', 'opponentID', 'win'], inplace = True)
 
 
 # Win probability based on conferences 
@@ -1944,8 +1841,28 @@ fig.suptitle('Win % based on Conference Matchups (1 = Conf. Champ)', fontsize = 
 fig.tight_layout(rect=[0,0,1,0.95])
 fig.show()   
 
-            
-    
+
+
+# Encode conference and conference winner matchups for feature selection
+matchups.loc[:, 'matchupKey'] = (
+                map(lambda matchup: '{}-{:.0f}-{}-{:.0f}'.format(*matchup),
+                       matchups[['teamconfGroups', 
+                              'teamconfChamp', 
+                              'oppconfGroups', 
+                              'oppconfChamp']]
+                        .values
+                        .tolist()
+                    )
+                )
+   
+# Convert to OHE Dict  
+#   Using variables independently versus the matchupKey yields better results
+confMatchups = pd.get_dummies(matchups[['teamconfGroups', 
+                              'teamconfChamp', 
+                              'oppconfGroups', 
+                              'oppconfChamp']])      
+
+featureImportanceAggConf, featureRankAggConf = treeModelsFeatureImportance(confMatchups)    
 #%% SEED RANK MATCHUPS
 ## ############################################################################
 
