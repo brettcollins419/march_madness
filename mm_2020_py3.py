@@ -62,11 +62,11 @@ def generateDataFrameColumnSummaries(df, returnDF = False):
     Return list of tuples.
     If returnDF == True, return a pandas dataframe'''
 
-    colSummary = map(lambda c: (c, 
+    colSummary = list(map(lambda c: (c, 
                                 df[c].dtype.type,
                                 df[c].dtype.hasobject),
                     df.columns.tolist()
-                    )
+                    ))
                     
     if returnDF == True:
       colSummary = pd.DataFrame(colSummary,
@@ -83,11 +83,11 @@ def buildSingleTeam(df, sharedCols = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scor
         Will generate a dataframe with 2x as many records'''
 
 
-    colsWinTemp = filter(lambda col: col.startswith('W') & (col not in sharedCols),
-                         df.columns.tolist())
+    colsWinTemp = list(filter(lambda col: col.startswith('W') & (col not in sharedCols),
+                         df.columns.tolist()))
     
-    colsLossTemp = filter(lambda col: col.startswith('L') & (col not in sharedCols),
-                          df.columns.tolist())   
+    colsLossTemp = list(filter(lambda col: col.startswith('L') & (col not in sharedCols),
+                          df.columns.tolist())) 
     
     
     # Format base/shared columns between wins & loss data
@@ -126,8 +126,8 @@ def buildSingleTeam(df, sharedCols = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scor
     
     
     # Calculate points allowed
-    aggDF.loc[:, 'pointsAllowed'] = map(lambda g: g[0] - g[1], 
-                                     aggDF.loc[:, ['Score', 'scoreGap']].values.tolist())      
+    aggDF.loc[:, 'pointsAllowed'] = list(map(lambda g: g[0] - g[1], 
+                                     aggDF.loc[:, ['Score', 'scoreGap']].values.tolist()))
         
 
     return aggDF
@@ -149,10 +149,12 @@ def buildModelData(gameDF):
  
     
     # Rename columns to flip winning and losing fields
-    loss.columns = map(lambda field: re.sub('^W(?!Loc)|^L', 
+    loss.columns = list(
+            map(lambda field: re.sub('^W(?!Loc)|^L', 
                                             lambda x: 'L' if x.group(0) == 'W' else 'W', 
                                             field),
                        loss.columns)
+        )
     
     # Assign win & loss column
     win.loc[:, 'win'], loss.loc[:, 'win'] = 1, 0
@@ -192,8 +194,8 @@ def buildModelData2(gameDF, teamDF,
     Return dataframe of team statistics matchup plus winnerA boolean column.'''
 
     
-    baseCols = filter(lambda c: c not in ['WTeamID', 'LTeamID'],
-                      gameDF)
+    baseCols = list(filter(lambda c: c not in ['WTeamID', 'LTeamID'],
+                      gameDF))
     
     # Split data
     a, b = train_test_split(gameDF, test_size = 0.5, random_state = 1127)
@@ -234,9 +236,9 @@ def generateMatchupField(df, matchupName, label1, label2):
     
     matchup = zip(df[label1 + matchupName].values.tolist(),
                   df[label2 + matchupName].values.tolist())
-    matchup = map(lambda m: list(m), matchup)
+    matchup = list(map(lambda m: list(m), matchup))
     map(lambda m: m.sort(), matchup)
-    matchup = map(lambda l: tuple(l), matchup)
+    matchup = list(map(lambda l: tuple(l), matchup))
     
     return matchup
 
@@ -250,9 +252,9 @@ def createMatchupField(df, label1, label2, sort = False):
                   df[label2].values.tolist())
     
     if sort == True:
-        matchup = map(lambda m: list(m), matchup)
+        matchup = list(map(lambda m: list(m), matchup))
         map(lambda m: m.sort(), matchup)
-        matchup = map(lambda l: tuple(l), matchup)
+        matchup = list(map(lambda l: tuple(l), matchup))
     
     return matchup
 
@@ -265,9 +267,9 @@ def modelAnalysis(model, data = [],
                   testTrainSplit = 0.2):
     
     if indCols == None:
-        indCols = filter(lambda col: ((data[col].dtype.hasobject == False) 
+        indCols = list(filter(lambda col: ((data[col].dtype.hasobject == False) 
                                         & (col != targetCol)), 
-                         data.columns.tolist())
+                         data.columns.tolist()))
     
     if len(testTrainDataList) == 4:                                           
         xTrain, xTest, yTrain, yTest = testTrainDataList
@@ -304,9 +306,9 @@ def modelAnalysisPipeline(modelPipe, data = [],
 
     # Remove all non numeric columns from model
     if indCols == None:
-        indCols = filter(lambda col: ((data[col].dtype.hasobject == False) 
+        indCols = list(filter(lambda col: ((data[col].dtype.hasobject == False) 
                                         & (col != targetCol)), 
-                         data.columns.tolist())
+                         data.columns.tolist()))
     
     # Assign test/train datasets if defined, otherwise perform test/train split
     if len(testTrainDataList) == 4:                                           
@@ -350,7 +352,7 @@ def generateTeamLookupDict(teamDF, yrFilter=True, yr=2019):
         teamDF.drop('Season', inplace = True, axis = 1)
 
     teamIDs = teamDF.index.values.tolist()
-    teamData = map(lambda v: tuple(v), teamDF.values.tolist())
+    teamData = list(map(lambda v: tuple(v), teamDF.values.tolist()))
     teamDict = {k:v for k,v in zip(teamIDs,teamData)}
 
     return teamDict
@@ -404,15 +406,15 @@ def generateOldTourneyResults(tSeeds, tSlots, tGames, yr):
     while np.any(tSlots['winner'].map(str) == 'x'):
         # Lookup Teams for Strong and Weak seeds
         for team in ['Strong', 'Weak']:
-            tSlots[team + 'Team'] = map(lambda t: seedsDict.get(t, 'x'),
-                                        tSlots[team + 'Seed'].values.tolist())
+            tSlots[team + 'Team'] = list(map(lambda t: seedsDict.get(t, 'x'),
+                                        tSlots[team + 'Seed'].values.tolist()))
         
         # Generate sorted matchup Teams tuple
         tSlots['matchup'] = generateMatchupField(tSlots, 'Team', 'Strong', 'Weak')
         
         # Lookup winner
-        tSlots['winner'] = map(lambda m: matchupDict.get(m, 'x'),
-                               tSlots['matchup'].values.tolist())
+        tSlots['winner'] = list(map(lambda m: matchupDict.get(m, 'x'),
+                               tSlots['matchup'].values.tolist()))
         
         # Update seeds dict with winner & slot    
         seedsDict.update(dict(tSlots[['Slot', 'winner']].values.tolist()))
@@ -526,25 +528,25 @@ def generateMatchupDeltas(df, label1, label2, labelName = 'TeamID', excludeCols 
     excludeCols += [label1 + labelName, label2 + labelName]    
     
     # Find all numeric columns
-    objectCols = filter(lambda c: df[c].dtype.hasobject, dfCols)
+    objectCols = list(filter(lambda c: df[c].dtype.hasobject, dfCols))
     excludeCols += objectCols
     
-    numericCols = filter(lambda c: c not in excludeCols, dfCols)
+    numericCols = list(filter(lambda c: c not in excludeCols, dfCols))
     
     # Split numeric columns between the two teams
-    label1Cols = filter(lambda c: colsTeamFilter(c, label1), numericCols)
-    label2Cols = filter(lambda c: colsTeamFilter(c, label2), numericCols)
+    label1Cols = list(filter(lambda c: colsTeamFilter(c, label1), numericCols))
+    label2Cols = list(filter(lambda c: colsTeamFilter(c, label2), numericCols))
 
     len1, len2 = len(label1Cols), len(label2Cols)
     
     # Make sure labels are in both datasets 
     # (filter longest list to elements in shortest list)
     if len1 >= len2:
-        label1Cols = filter(lambda c: c[1:] in map(lambda cc: c[1:], label2Cols), 
-                            label1Cols)
+        label1Cols = list(filter(lambda c: c[1:] in map(lambda cc: c[1:], label2Cols), 
+                            label1Cols))
     else:
-        label2Cols = filter(lambda c: c[1:] in map(lambda cc: c[1:], label1Cols), 
-                            label2Cols)
+        label2Cols = list(filter(lambda c: c[1:] in map(lambda cc: c[1:], label1Cols), 
+                            label2Cols))
     
     # Sort columns for zippping 
     label1Cols.sort()
@@ -558,7 +560,7 @@ def generateMatchupDeltas(df, label1, label2, labelName = 'TeamID', excludeCols 
     l2DF.columns = label1Cols
 
     deltaDF = l1DF - l2DF    
-    deltaDF.columns = map(lambda colName: colName[1:] + 'Delta', label1Cols)
+    deltaDF.columns = list(map(lambda colName: colName[1:] + 'Delta', label1Cols))
 
     return deltaDF
 
@@ -678,9 +680,9 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols,
                                  'seedRank' : team + 'seedRank'}, inplace = True)
     
         # Combine rank and name
-        tSlots.loc[:, '{}NameAndRank'.format(team)] = map(lambda t: '{:.0f} {}'.format(t[0], t[1]),
+        tSlots.loc[:, '{}NameAndRank'.format(team)] = list(map(lambda t: '{:.0f} {}'.format(t[0], t[1]),
                                                            tSlots[['{}seedRank'.format(team),
-                                                                   '{}Name'.format(team)]].values.tolist())
+                                                                   '{}Name'.format(team)]].values.tolist()))
     
     # Order & clean results 
     tSlots = tSlots.sort_values('Slot')
@@ -717,8 +719,8 @@ def createMatchups(matchupDF,
         Return dataframe with same number of recors as the matchupDF.
         '''
     baseCols = matchupDF.columns.tolist()
-    team1Cols = map(lambda field: '{}{}'.format(teamLabel1, field), statsDF.columns.tolist())
-    team2Cols = map(lambda field: '{}{}'.format(teamLabel2, field), statsDF.columns.tolist())
+    team1Cols = list(map(lambda field: '{}{}'.format(teamLabel1, field), statsDF.columns.tolist()))
+    team2Cols = list(map(lambda field: '{}{}'.format(teamLabel2, field), statsDF.columns.tolist()))
 
     
     # Merge team statsDF on teamID1
@@ -762,11 +764,11 @@ def createMatchups(matchupDF,
     # Identify numeric columns to calculate deltas
     deltaCols = colCount[colCount['field'] >= 2]
     
-    matchupCols = filter(lambda c: matchupNew['{}{}'.format(teamLabel1, c)].dtype.hasobject == True,
-                       deltaCols.index.get_level_values('field'))
+    matchupCols = list(filter(lambda c: matchupNew['{}{}'.format(teamLabel1, c)].dtype.hasobject == True,
+                       deltaCols.index.get_level_values('field')))
     
-    deltaCols = filter(lambda c: c not in matchupCols,
-                       deltaCols.index.get_level_values('field'))
+    deltaCols = list(filter(lambda c: c not in matchupCols,
+                       deltaCols.index.get_level_values('field')))
     
  
     
@@ -778,7 +780,7 @@ def createMatchups(matchupDF,
                                                   - matchupNew.loc[:, '{}{}'.format(teamLabel2, col)])
    
         # Update column names
-        deltaCols = map(lambda col: '{}Delta'.format(col), deltaCols)
+        deltaCols = list(map(lambda col: '{}Delta'.format(col), deltaCols))
     
     else: deltaCols = []
     
@@ -791,7 +793,7 @@ def createMatchups(matchupDF,
     
 
          # Update column names
-        matchupCols = map(lambda col: '{}Delta'.format(col), list(set(matchupCols + extraMatchupCols)))   
+        matchupCols = list(map(lambda col: '{}Delta'.format(col), list(set(matchupCols + extraMatchupCols))))
     
     else: matchupCols = []
         
@@ -837,7 +839,7 @@ def pctIntersect(data1, data2):
     
     dataAgg = np.hstack((data1, data2))
     
-    dataIntersect = filter(lambda x: (x >= lowerBound) & (x <= upperBound), data2)
+    dataIntersect = list(filter(lambda x: (x >= lowerBound) & (x <= upperBound), data2))
     
     return len(dataIntersect) / len(dataAgg)
 
@@ -849,17 +851,17 @@ def independentColumnsFilter(df, excludeCols = [], includeCols = []):
     Return list of column names of independent variables'''
 
     if len(includeCols) == 0:
-        indCols = filter(lambda c: (df[c].dtype.hasobject == False) 
+        indCols = list(filter(lambda c: (df[c].dtype.hasobject == False)
                                     & (c.endswith('ID') == False)
                                     & (c not in excludeCols),
-                        df.columns.tolist())
+                        df.columns.tolist()))
     
     # Use input list
     else:
-        indCols = filter(lambda c: (df[c].dtype.hasobject == False) 
+        indCols = list(filter(lambda c: (df[c].dtype.hasobject == False) 
                                     & (c.endswith('ID') == False)
                                     & (c in includeCols),
-                        df.columns.tolist())
+                        df.columns.tolist()))
                    
     return indCols
 
@@ -880,9 +882,11 @@ pcs = {
     'WINDOWS-ASE2MLR' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
                   'repo':'C:\\Users\\brett\\Documents\\march_madness_ml\\march_madness'},
 
+    'JB' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
+            'repo':'C:\\Users\\brett\\Documents\\march_madness_ml\\march_madness'},
+
 }
     
-    C:\Users\brett\Documents\march_madness_ml\datasets\2019
 
 # Set working directory & load functions
 pc = pcs.get(socket.gethostname())
@@ -893,7 +897,7 @@ del(pcs)
 
 # Set up environment
 os.chdir(pc['repo'])
-from mm_functions import *
+#from mm_functions import *
 
 os.chdir(pc['wd'])
 #execfile('{}\\000_mm_environment_setup.py'.format(pc['repo']))
@@ -913,7 +917,7 @@ dataFiles.sort()
 dataFiles = list(filter(lambda f: '.csv' in f, dataFiles))
 
 
-keyNames = map(lambda f: f[:-4], dataFiles)
+#keyNames = list(map(lambda f: f[:-4], dataFiles))
 
 
 keyNames = [ 'cities',
@@ -993,10 +997,10 @@ del(df, team)
 ## ORGANIZE BY TEAM VS OPPONENT INSTEAD OF WTEAM VS LTEAM
 # Doubles the number of observations
 #   Data shape: (m,n) -> (2m,n)
-map(lambda df: dataDict.setdefault('{}singleTeam'.format(df),
-                                    buildSingleTeam(dataDict[df])),
-    ('rGamesC', 'rGamesD', 'tGamesC', 'tGamesD'))
-
+[dataDict.setdefault('{}singleTeam'.format(df),
+                                    buildSingleTeam(dataDict[df]))
+    for df in ('rGamesC', 'rGamesD', 'tGamesC', 'tGamesD')
+    ]
 
 ## REORGANIZE DATA TO MAKE HALF OF GAMES LOSSES
 # Maintains same data shape as original
@@ -1030,10 +1034,10 @@ for df in ('rGamesC', 'rGamesD'):
    
     
     # Subset of columns in games dataframes to calculate metrics
-    statCols = filter(lambda c: c not in ('DayNum', 'NumOT', 'FTM', 'FGM', 
+    statCols = list(filter(lambda c: c not in ('DayNum', 'NumOT', 'FTM', 'FGM', 
                                           'FGM3', 'opponentID', 
                                           'Loc', 'TeamID', 'Season'),
-                      dataDict[df + 'singleTeam'].columns)
+                      dataDict[df + 'singleTeam'].columns))
     
     
     # Calculate season averages for each team and store results
@@ -1134,7 +1138,7 @@ for df in map(lambda d: '{}TeamSeasonStats'.format(d),
 
     # Group small conferences together
     dataDict[df].loc[:, 'confGroups'] = (
-            map(lambda conf: conf if conf in ('big_east', 
+            list(map(lambda conf: conf if conf in ('big_east', 
                                               'big_twelve', 
                                               'acc', 
                                               'big_ten', 
@@ -1142,7 +1146,7 @@ for df in map(lambda d: '{}TeamSeasonStats'.format(d),
                                               )
                                 else 'other',
                 dataDict[df]['ConfAbbrev'].values.tolist())
-            )
+            ))
     
         
 
@@ -1151,11 +1155,11 @@ for df in map(lambda d: '{}TeamSeasonStats'.format(d),
 
 # Tourney Seed Rank
 dataDict['tSeeds'].loc[:, 'seedRank'] = (
-        map(lambda s: float(re.findall('[0-9]+', s)[0]), 
+        list(map(lambda s: float(re.findall('[0-9]+', s)[0]), 
             dataDict['tSeeds']['Seed'].values.tolist())
-        )
+        ))
 
-for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
+for df in list(map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD'))):
 
     dataDict[df].loc[:, 'seedRank'] = (
             dataDict['tSeeds'].set_index(['Season', 'TeamID'])['seedRank'])
@@ -1352,8 +1356,8 @@ matchups.loc[:, 'spreadStrengthRatio2'] = (
 
 
 # Identify strength columns for aggregation and calculating team performance
-strengthMetrics = filter(lambda metric: metric.find('Strength') >= 0, 
-                         matchups.columns.tolist())
+strengthMetrics = list(filter(lambda metric: metric.find('Strength') >= 0, 
+                         matchups.columns.tolist()))
 
 
 # Calculate team season means for each metric
@@ -1544,53 +1548,56 @@ trainIndex, testIndex = train_test_split(range(matchups.shape[0]),
                                          test_size = 0.2)
 
 # Create recursive feature selection models for each treeModel
-rfeCVs = {k:RFECV(v, cv = 5) for k,v in treeModels.iteritems()}
+rfeCVs = {k:RFECV(v, cv = 5) for k,v in treeModels.items()}
 
 # Train models
 map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
                           matchups.iloc[trainIndex,:].index.get_level_values('win'))
-    , rfeCVs.itervalues())
+    , rfeCVs.values())
+
+
+[tree.fit(matchups.iloc[trainIndex,:], 
+          matchups.iloc[trainIndex,:].index.get_level_values('win'))
+    for tree in rfeCVs.values()]
 
 
 # Score models on train & test data
-map(lambda tree: 
-    map(lambda idx: 
+[ 
+    [
         tree.score(matchups.iloc[idx,:], 
-                      matchups.iloc[idx,:].index.get_level_values('win')),
-        (trainIndex, testIndex)
-    )
-    , rfeCVs.itervalues())
+                      matchups.iloc[idx,:].index.get_level_values('win'))
+        for idx in (trainIndex, testIndex)
+    ]
+    for tree in rfeCVs.values()]
 
 # # of features selected for each model
-map(lambda rfeCV: 
-    (rfeCV[0], rfeCV[1].n_features_)
-    , rfeCVs.iteritems())    
+[(rfeCV[0], rfeCV[1].n_features_) for rfeCV in rfeCVs.items()] 
     
 
 # Get selected features for each model
 featureImportance = pd.concat(
-        map(lambda rfeCV:
+        list(map(lambda rfeCV:
             pd.DataFrame(
                 zip(repeat(rfeCV[0], sum(rfeCV[1].support_)),
                     matchups.columns[rfeCV[1].support_],
                     rfeCV[1].estimator_.feature_importances_),
                 columns = ['model', 'metric', 'importance']
                 ).sort_values(['model', 'importance'], ascending = [True, False])
-                , rfeCVs.iteritems())
-        , axis = 0)
+                , rfeCVs.items())
+        ), axis = 0)
 
 
 
 featureRank = pd.concat(
-        map(lambda rfeCV:
+        list(map(lambda rfeCV:
             pd.DataFrame(
                 zip(repeat(rfeCV[0], len(rfeCV[1].ranking_)),
                     matchups.columns,
                     rfeCV[1].ranking_),
                 columns = ['model', 'metric', 'ranking']
                 ).sort_values(['model', 'ranking'], ascending = [True, True])
-                , rfeCVs.iteritems())
-        , axis = 0)
+                , rfeCVs.items())
+        ), axis = 0)
 
 
 
@@ -1647,16 +1654,16 @@ matchups = createMatchups(
 
 
 topNWins = (pd.concat(
-        map(lambda topN: 
+        list(map(lambda topN: 
             (matchups[matchups['oppspreadStrength'] <= topN].groupby(['Season', 'TeamID'])
                                                             .agg({'win':np.sum})),
-            topNlist),
+            topNlist)),
         axis = 1))
 
 
 # Fill missing values and rename columns
 topNWins.fillna(0, inplace = True)
-topNWins.columns = map(lambda topN: 'wins{}'.format(str(topN).zfill(3)), topNlist)
+topNWins.columns = list(map(lambda topN: 'wins{}'.format(str(topN).zfill(3)), topNlist))
 
 
 
@@ -1681,39 +1688,37 @@ matchups.set_index(['Season', 'TeamID', 'opponentID', 'win'], inplace = True)
 # Fit and score feature selection
 
 # Train models
-map(lambda tree: tree.fit(matchups.iloc[trainIndex,:], 
-                          matchups.iloc[trainIndex,:].index.get_level_values('win'))
-    , rfeCVs.itervalues())
+[tree.fit(matchups.iloc[trainIndex,:],
+          matchups.iloc[trainIndex,:].index.get_level_values('win'))
+    for tree in rfeCVs.values()]
 
 
 # Score models on train & test data
-map(lambda tree: 
-    map(lambda idx: 
+[ 
+   [ 
         tree.score(matchups.iloc[idx,:], 
-                      matchups.iloc[idx,:].index.get_level_values('win')),
-        (trainIndex, testIndex)
-    )
-    , rfeCVs.itervalues())
+                      matchups.iloc[idx,:].index.get_level_values('win'))
+        for idx in (trainIndex, testIndex)
+    ]
+    for tree in rfeCVs.values()]
 
 # # of features selected for each model
-map(lambda rfeCV: 
-    (rfeCV[0], rfeCV[1].n_features_)
-    , rfeCVs.iteritems())  
+[(rfeCV[0], rfeCV[1].n_features_) for rfeCV in rfeCVs.items()]
     
  
     
     
 # Get selected features for each model
 featureImportanceTopN = pd.concat(
-        map(lambda rfeCV:
+        list(map(lambda rfeCV:
             pd.DataFrame(
                 zip(repeat(rfeCV[0], sum(rfeCV[1].support_)),
                     matchups.columns[rfeCV[1].support_],
                     rfeCV[1].estimator_.feature_importances_),
                 columns = ['model', 'metric', 'importance']
                 ).sort_values(['model', 'importance'], ascending = [True, False])
-                , rfeCVs.iteritems())
-        , axis = 0)
+                , rfeCVs.items())
+        ), axis = 0)
 
 
 # Aggregate Feature Importance Metrics 
@@ -1770,7 +1775,7 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
 ### ############################## TEAM STRENTGH METRICS ######################
 ### ###########################################################################
 
-execfile('{}\\050_mm_team_strength_metrics.py'.format(pc['repo']))
+#execfile('{}\\050_mm_team_strength_metrics.py'.format(pc['repo']))
 
 ### ###########################################################################
 ### ##################### MAP TEAM CONFERENCES ################################
