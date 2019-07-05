@@ -603,7 +603,7 @@ def tourneyPredictions2(model, teamDF, tSeeds, tSlots, mdlCols,
     matchupData = pd.DataFrame()
     
     # Loop through rounds making predictions
-    while len(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist())) > 0:
+    while len(list(filter(lambda result: result == 'x', tSlots['rndWinner'].values.tolist()))) > 0:
         
         # Match seeds to slot for matchups
         for seed in ['Strong', 'Weak']:
@@ -867,6 +867,8 @@ def independentColumnsFilter(df, excludeCols = [], includeCols = []):
 
 
 #%% ENVIRONMENT SETUP
+
+timer()
 
 # Working Directory Dictionary
 pcs = {
@@ -1751,7 +1753,7 @@ plt.plot((pd.melt(matchups.loc[matchups.index.get_level_values('win') == 1,
                                    matchups.columns)])
             .groupby('variable')
             .agg({'value': lambda data: 
-                len(filter(lambda delta: delta > 0, data))/ len(data)})),
+                len(list(filter(lambda delta: delta > 0, data)))/ len(data)})),
         'go--', linewidth=2, markersize=12)
 
 ax2.grid()
@@ -1782,14 +1784,14 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
 ### ###########################################################################
 
 
-for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
+for df in list(map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD'))):
     
     dataDict[df].loc[:, 'ConfAbbrev'] = (
             dataDict['teamConferences'].set_index(['Season', 'TeamID'])['ConfAbbrev']
             )
     
     # New column with all small conferences grouped together
-    dataDict[df].loc[:, 'confGroups'] = (
+    dataDict[df].loc[:, 'confGroups'] = list(
             map(lambda conf: conf if conf in 
                 ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
                 else 'other',
@@ -1797,6 +1799,6 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
             )
     
         
-
+print(timer())
 
 
