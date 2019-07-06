@@ -458,7 +458,7 @@ def logProcessTime(comment, timeLog):
     timeLog.append(
             (comment
              , timer()
-             , datetime.now().strftime('%Y-%m-%d %h:%M:%S'))
+             , datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             )
     
     print('{}\t{}\t{}'.format(*timeLog[-1]))
