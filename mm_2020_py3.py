@@ -452,6 +452,18 @@ def timer(sigDigits = 3):
         #global startTime        
 
 
+def logProcessTime(comment, timeLog):
+    '''Append process comment and process time to timeLog and print'''
+    
+    timeLog.append(
+            (comment
+             , timer()
+             , datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+            )
+    
+    print('{}\t{}\t{}'.format(*timeLog[-1]))
+
+    return
 
 
 def plotCorrHeatMap(corrData, ax = None,
@@ -868,7 +880,7 @@ def independentColumnsFilter(df, excludeCols = [], includeCols = []):
 
 #%% ENVIRONMENT SETUP
 
-timer()
+
 
 # Working Directory Dictionary
 pcs = {
@@ -903,6 +915,11 @@ os.chdir(pc['repo'])
 
 os.chdir(pc['wd'])
 #execfile('{}\\000_mm_environment_setup.py'.format(pc['repo']))
+
+
+# Initiate timing log
+timer()
+timeLog = []
 
 
 #%% INTITIAL DATA LOAD
@@ -945,6 +962,9 @@ keyNames = [ 'cities',
 
 dataDict = {k : pd.read_csv('datasets\\2019\\{}'.format(data), encoding = 'latin1') 
             for k, data in zip(keyNames, dataFiles)}
+
+# Log process time
+logProcessTime('data load', timeLog)
 
 #%% ADDITIONAL IN GAME METRICS
 ## ############################################################################
@@ -991,6 +1011,10 @@ for df in ['tGamesD', 'rGamesD']:
         
 # Variable clean up
 del(df, team)
+
+
+# Log process time
+logProcessTime('in game metrics', timeLog)
 
 
 #%% BUILD SINGLE TEAM & MODEL DATASETS
@@ -1067,6 +1091,11 @@ for df in ('rGamesC', 'rGamesD'):
                                      axis = 1, 
                                      inplace = True)     
     
+
+# Log process time
+logProcessTime('single team datasets', timeLog)
+
+    
     # Weight scoreGapWin by win %
 #    dataDict[df+'TeamSeasonStats'].loc[:, 'scoreGapWinPct'] = dataDict[df + 'TeamSeasonStats'].loc[:, 'scoreGapWin'] * dataDict[df + 'TeamSeasonStats'].loc[:, 'win']
     
@@ -1125,6 +1154,10 @@ del(statCols, confWinners, aggDict, df)
 
 
 
+# Log process time
+logProcessTime('conference tournament champs', timeLog)
+
+
 #execfile('{}\\040_mm_seeds_ordinals_conferences.py'.format(pc['repo']))
 
 #%% CONFERENCES
@@ -1166,6 +1199,9 @@ for df in list(map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD'))):
     dataDict[df].loc[:, 'seedRank'] = (
             dataDict['tSeeds'].set_index(['Season', 'TeamID'])['seedRank'])
 
+
+# Log process time
+logProcessTime('append seed ranks', timeLog)
 
 
 #%% END OF SEASON MASSEY ORDINAL RANKS
@@ -1221,6 +1257,10 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
 dataDict['endSeasonRanks'] = rsRankings
 
 
+# Log process time
+logProcessTime('massey ordinals', timeLog)
+
+
 #%% SCALED TEAM SEASON STATISTICS
 ## ############################################################################    
   
@@ -1268,10 +1308,12 @@ del(maxRankDate, rsRankings, dataDict['MasseyOrdinals'],
     fillDict, endRegSeason, df)
 
 
+# Log process time
+logProcessTime('handle missing data', timeLog)
+
+
 #%% STRENGTH METRICS
 ## ############################################################################
-
-
 
 df = 'rGamesC'
 
@@ -1395,27 +1437,32 @@ strengthDF = (strengthDF.groupby('Season')
                         .apply(lambda m: (m - m.min()) / (m.max() - m.min()))
                         )
 
+
+
+# Log process time
+logProcessTime('strength metrics', timeLog)
+
+
 #%% STRENGTH METRIC ANALYSIS
+## ############################################################################
 
 # Create MatchUps of Tournament Games to determine which strength metrics
 # Has the best performance, and which one to use for ranking teams
-matchups = createMatchups(matchupDF = dataDict['tGamesCsingleTeam'][['Season', 'TeamID', 'opponentID', 'win']],
-                                         statsDF = strengthDF,
-                                         teamID1 = 'TeamID', 
-                                         teamID2 = 'opponentID',
-                                         teamLabel1 = 'team',
-                                         teamLabel2 = 'opp',
-                                         returnBaseCols = True,
-                                         returnTeamID1StatCols = True,
-                                         returnTeamID2StatCols = True,
-                                         calculateDelta = True,
-                                         calculateMatchup = False)
+matchups = createMatchups(
+        matchupDF = dataDict['tGamesCsingleTeam'][['Season', 'TeamID', 'opponentID', 'win']],
+         statsDF = strengthDF,
+         teamID1 = 'TeamID', 
+         teamID2 = 'opponentID',
+         teamLabel1 = 'team',
+         teamLabel2 = 'opp',
+         returnBaseCols = True,
+         returnTeamID1StatCols = True,
+         returnTeamID2StatCols = True,
+         calculateDelta = True,
+         calculateMatchup = False
+         )
 
 matchups.set_index(['Season', 'TeamID', 'opponentID', 'win'], inplace = True)
-
-
-
-
 
 
 nRows = int(np.ceil(len(strengthDF.columns)**0.5))
@@ -1533,10 +1580,13 @@ fig2.show()
 
 
 
+# Log process time
+logProcessTime('strength metric analysis', timeLog)
+
 
 
 #%% STRENGTH METRIC IMPORTANCE AND SELECTION
-
+## ############################################################################
 
 # Models for getting feature importance
 treeModels = {'gb': GradientBoostingClassifier(random_state = 1127, 
@@ -1631,7 +1681,13 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
     dataDict[df].loc[:, 'oppStrength'] = strengthDF['oppStrength']
 
 
-#%% Wins Against TopN Teams
+
+# Log process time
+logProcessTime('strength metric feature importance', timeLog)
+
+
+#%% WINS AGAINST TOPN TEAMS
+## ############################################################################
 
 # use 'spreadStrengthDelta' as teamstrength since it highest feature importance
 # Find best metric for # of wins agains topN teams
@@ -1769,6 +1825,12 @@ dataDict['topNWins'] = topNWins
 for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
     dataDict[df].loc[:, 'wins160'] = topNWins['wins160']
     dataDict[df].loc[:, 'wins090'] = topNWins['wins090']
+
+
+
+# Log process time
+logProcessTime('wins against top N teams', timeLog)
+
 
 
 #%% DEV
