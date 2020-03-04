@@ -1866,7 +1866,13 @@ featureImportanceAggConf, featureRankAggConf = treeModelsFeatureImportance(confM
 #%% SEED RANK MATCHUPS
 ## ############################################################################
 
- 
+# Convert to OHE Dict  
+#   Using variables independently versus the matchupKey yields better results
+seedMatchups = pd.get_dummies(matchups[['teamseedRank', 
+                              'oppseedRank']])      
+
+featureImportanceAggSeed, featureRankAggSeed = treeModelsFeatureImportance(seedMatchups)    
+
 
 # Win probability based on seed rank
 srDeltaStats = (

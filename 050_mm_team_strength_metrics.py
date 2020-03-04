@@ -248,7 +248,7 @@ for i, metric in enumerate(strengthDF.columns):
     
     sns.heatmap(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], 
                 annot = True, 
-                fmt='.2f',
+                fmt='.0%',
                 mask = heatMapMask(heatMapData.loc[:, heatMapData.columns.get_level_values(0) == 'win'], k = -1, corner = 'lower_left'),
 #                square = True,
                 cmap = 'RdYlGn',
@@ -293,6 +293,7 @@ fig1.show()
 fig2.tight_layout(rect=[0,0,1,0.97])
 fig2.suptitle('# of Games for Metric Bins {}'.format(mBins), fontsize = 20)
 fig2.show()
+
 
 
 
