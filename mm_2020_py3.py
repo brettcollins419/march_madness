@@ -8,7 +8,6 @@ Created on Fri Apr 26 13:25:16 2019
 
 ### PACKAGES
 
-from __future__ import division
 import os
 import time
 import sys
@@ -879,7 +878,7 @@ def independentColumnsFilter(df, excludeCols = [], includeCols = []):
 
 
 #%% ENVIRONMENT SETUP
-
+## ###########################################################################
 
 
 # Working Directory Dictionary
@@ -926,7 +925,8 @@ timeLog = []
 
 
 # Read data
-dataFiles = os.listdir('datasets\\2019')
+dataFolder = 'datasets\\2020'
+dataFiles = os.listdir(dataFolder)
 dataFiles.sort()
 
 # Remove zip files
@@ -936,29 +936,34 @@ dataFiles = list(filter(lambda f: '.csv' in f, dataFiles))
 #keyNames = list(map(lambda f: f[:-4], dataFiles))
 
 
-keyNames = [ 'cities',
-             'confTgames',
-             'conferences',
-             'gameCities',
-             'MasseyOrdinals',
-             'tGamesC',
-             'tGamesD',
-             'tSeedSlots',
-             'tSeeds',
-             'tSlots',
-             'rGamesC',
-             'rGamesD',
-             'Seasons',
-             'secTGamesC',
-             'secTTeams',
-             'teamCoaches',
-             'teamConferences',
-             'teamSpellings',
-             'teams'
-             ]
+keyNames = {
+    'cities' : 'Cities.csv',
+    'conferences' :  'Conferences.csv',
+    'confTgames' :  'MConferenceTourneyGames.csv',
+    'gameCities' :  'MGameCities.csv',
+    'MasseyOrdinals' :  'MMasseyOrdinals.csv',
+    'tGamesC' :  'MNCAATourneyCompactResults.csv',
+    'tGamesD' :  'MNCAATourneyDetailedResults.csv',
+    'tSeedSlots' :  'MNCAATourneySeedRoundSlots.csv',
+    'tSeeds' :  'MNCAATourneySeeds.csv',
+    'tSlots' :  'MNCAATourneySlots.csv',
+    'rGamesC' :  'MRegularSeasonCompactResults.csv',
+    'rGamesD' :  'MRegularSeasonDetailedResults.csv',
+    'Seasons' :  'MSeasons.csv',
+    'secTGamesC' :  'MSecondaryTourneyCompactResults.csv',
+    'secTTeams' :  'MSecondaryTourneyTeams.csv',
+    'teamCoaches' :  'MTeamCoaches.csv',
+    'teamConferences' :  'MTeamConferences.csv',
+    'teamSpellings' :  'MTeamSpellings.csv',
+    'teams' :  'MTeams.csv',
+    }
 
-dataDict = {k : pd.read_csv('datasets\\2019\\{}'.format(data), encoding = 'latin1') 
-            for k, data in zip(keyNames, dataFiles)}
+
+
+dataDict = {k : pd.read_csv('{}\\{}'.format(dataFolder, data), 
+                            encoding = 'latin1') 
+            for k, data in keyNames.items()
+            }
 
 # Log process time
 logProcessTime('data load', timeLog)
@@ -1042,6 +1047,7 @@ logProcessTime('in game metrics', timeLog)
 
 #execfile('{}\\030_mm_team_season_metrics.py'.format(pc['repo']))
 
+
 for df in ('rGamesC', 'rGamesD'):
 
     # Isolate score gap for only wins and losses respectively
@@ -1124,7 +1130,10 @@ logProcessTime('single team datasets', timeLog)
 #       develop contribution of each axis
 
 
-performPCA = False
+# Base columns (carry over from 2019)
+colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scoreGap']
+
+performPCA = True
 
 if performPCA == True:
     
@@ -1167,7 +1176,7 @@ if performPCA == True:
         pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
     
     
-        fig, axs = plt.subplots(1, 2)
+        fig, axs = plt.subplots(1, 2, figsize = (10,6))
         plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
         
         
@@ -1238,13 +1247,13 @@ if performPCA == True:
         pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
     
     
-        fig, axs = plt.subplots(1, 2)
+        fig, axs = plt.subplots(1, 2, figsize = (10,6))
         plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
         
         
         # Determine how many labels to plot so that axis isn' cluttered
         axisLabelFreq = len(pcaCols) // 20 + 1
-        xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
+        xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, range(len(pcaCols)))
         xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
         
         # Plot feature weights for each component
@@ -1266,7 +1275,7 @@ if performPCA == True:
         axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
            
         # Plot explained variance curve
-        axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
+        axs[1].plot(range(pcaDict[df].named_steps['pca'].n_components_), 
                     np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
                     '-bo', 
                     markersize = 20, 
