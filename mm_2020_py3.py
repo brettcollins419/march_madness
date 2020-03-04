@@ -893,11 +893,8 @@ pcs = {
     'raspberrypi' : {'wd':'/home/pi/Documents/march_madness_ml',
                      'repo':'/home/pi/Documents/march_madness'},
     
-    'WINDOWS-ASE2MLR' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
+    'jeebs' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
                   'repo':'C:\\Users\\brett\\Documents\\march_madness_ml\\march_madness'},
-
-    'JB' : {'wd':'C:\\Users\\brett\\Documents\\march_madness_ml',
-            'repo':'C:\\Users\\brett\\Documents\\march_madness_ml\\march_madness'},
 
 }
     
@@ -1115,6 +1112,184 @@ logProcessTime('single team datasets', timeLog)
 #                    left_index = True, 
 #                    right_index = True)
 #            )
+ 
+    
+#%% PRINCIPLE COMPONENT ANALYSIS
+## ############################################################################
+    
+# Perform PCA analysis on each Team Stats dataframe
+#   Steps (use pipeline):
+#       Scale Data
+#       Calculate PCA for same number of dimensions in dataset to
+#       develop contribution of each axis
+
+
+performPCA = False
+
+if performPCA == True:
+    
+    teamStatsDFs = list(
+            filter(lambda dfName: 
+                len(re.findall('r.*TeamSeasonStats.*', dfName))>0, 
+                dataDict.keys())
+            )
+    
+    gamesStatsDFs = list(
+            filter(lambda dfName: 
+                len(re.findall('r.*SeasonStatsMatchup.*', dfName))>0, 
+                dataDict.keys())
+            )
+
+    
+    labelFontSize = 20
+    titleFontSize = 24
+    tickFontSize = 16
+    
+    pcaDict = {}
+    
+    
+    ### PCA Analysis on Team season statistics
+    
+    pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID']
+    
+    for df in teamStatsDFs:
+    
+        # Get columns for transformation using PCA
+#        pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+        pcaCols = list(filter(lambda n: n not in pcaExcludeCols, dataDict[df].columns))
+     
+        pcaPipe = Pipeline([('sScale', StandardScaler()), 
+                            ('pca', PCA(n_components = len(pcaCols), 
+                                        random_state = 1127))])
+       
+        #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+        
+        pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
+    
+    
+        fig, axs = plt.subplots(1, 2)
+        plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+        
+        
+        # Determine how many labels to plot so that axis isn' cluttered
+        axisLabelFreq = len(pcaCols) // 20 + 1
+        xAxisLabelsMask =  list(
+                map(lambda x: x % axisLabelFreq == 0
+                    , range(len(pcaCols)))
+                )
+        xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
+        
+        # Plot feature weights for each component
+        sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
+                    square = False, 
+                    cmap = 'coolwarm', 
+                    ax=axs[0], 
+                    #annot=True,
+                    xticklabels = axisLabelFreq,
+                    yticklabels = axisLabelFreq)
+        
+        # Add feature lables & format plot    
+        axs[0].set_xticklabels(xAxisLabels, 
+                               fontsize = tickFontSize,
+                               rotation = 90)
+        axs[0].tick_params(labelsize = tickFontSize)
+        axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
+        axs[0].set_xlabel('Feature', fontsize = labelFontSize)
+        axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+           
+        # Plot explained variance curve
+        axs[1].plot(range(pcaDict[df].named_steps['pca'].n_components_), 
+                    np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
+                    '-bo', 
+                    markersize = 20, 
+                    linewidth = 10)
+        
+        # Convert y-axis to %
+        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+        
+        axs[1].set_title('Explained Variance vs. # of Components', 
+                         fontsize = titleFontSize)
+        axs[1].set_xlabel('# of Features', 
+                          fontsize = labelFontSize)
+        axs[1].set_ylabel('Explained Variance', 
+                          fontsize = labelFontSize)
+        axs[1].tick_params(labelsize = tickFontSize)
+        axs[1].grid()
+    
+    
+    
+    
+    ### PCA Analysis on matchup dataframes
+    
+    pcaExcludeCols = ['WTeamID', 'LTeamID'] + colsBase
+    
+    for df in gamesStatsDFs:
+    
+        # Get columns for transformation using PCA
+        #pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
+        pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
+     
+        pcaPipe = Pipeline([('sScale', StandardScaler()), 
+                            ('pca', PCA(n_components = len(pcaCols), 
+                                        random_state = 1127))])
+       
+        #pca = PCA(n_components = len(pcaCols), random_state = 1127)
+        
+        pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
+    
+    
+        fig, axs = plt.subplots(1, 2)
+        plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
+        
+        
+        # Determine how many labels to plot so that axis isn' cluttered
+        axisLabelFreq = len(pcaCols) // 20 + 1
+        xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, xrange(len(pcaCols)))
+        xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
+        
+        # Plot feature weights for each component
+        sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
+                    square = False, 
+                    cmap = 'coolwarm', 
+                    ax=axs[0], 
+                    #annot=True,
+                    xticklabels = axisLabelFreq,
+                    yticklabels = axisLabelFreq)
+        
+        # Add feature lables & format plot    
+        axs[0].set_xticklabels(xAxisLabels, 
+                               fontsize = tickFontSize,
+                               rotation = 90)
+        axs[0].tick_params(labelsize = tickFontSize)
+        axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
+        axs[0].set_xlabel('Feature', fontsize = labelFontSize)
+        axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
+           
+        # Plot explained variance curve
+        axs[1].plot(xrange(pcaDict[df].named_steps['pca'].n_components_), 
+                    np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
+                    '-bo', 
+                    markersize = 20, 
+                    linewidth = 10)
+        
+        # Convert y-axis to %
+        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+        
+        axs[1].set_title('Explained Variance vs. # of Components', 
+                         fontsize = titleFontSize)
+        axs[1].set_xlabel('# of Features', 
+                          fontsize = labelFontSize)
+        axs[1].set_ylabel('Explained Variance', 
+                          fontsize = labelFontSize)
+        axs[1].tick_params(labelsize = tickFontSize)
+        axs[1].grid()
+    
+    
+   
+    
+    
+    
+    
     
 #%% CONFERENCE TOURNAMENT CHAMPIONS
 ## ############################################################################
