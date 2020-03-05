@@ -6,7 +6,8 @@ Created on Fri Apr 26 13:25:16 2019
 """
 
 
-### PACKAGES
+#%% PACKAGES
+## ############################################################################
 
 import os
 import time
@@ -730,33 +731,56 @@ def createMatchups(matchupDF,
         Return dataframe with same number of recors as the matchupDF.
         '''
     baseCols = matchupDF.columns.tolist()
-    team1Cols = list(map(lambda field: '{}{}'.format(teamLabel1, field), statsDF.columns.tolist()))
-    team2Cols = list(map(lambda field: '{}{}'.format(teamLabel2, field), statsDF.columns.tolist()))
+    
+    team1Cols = list(
+        map(lambda field: '{}{}'.format(teamLabel1, field), 
+            statsDF.columns.tolist()
+            )
+        )
+    
+    team2Cols = list(
+        map(lambda field: '{}{}'.format(teamLabel2, field), 
+            statsDF.columns.tolist()
+            )
+        )
 
     
     # Merge team statsDF on teamID1
-    matchupNew = matchupDF.merge((statsDF.reset_index('TeamID')
-                                         .rename(columns = {'TeamID':teamID1})
-                                         .set_index(teamID1, append = True)
-                                         .rename(columns = dict(map(lambda field: (field, '{}{}'.format(teamLabel1, field)),
-                                                                    statsDF.columns.tolist())))
-                                         ),
-                                        left_on = ['Season', teamID1],
-                                        right_index = True,
-                                       how = 'left'
-                                        )
+    matchupNew = matchupDF.merge(
+        (statsDF.reset_index('TeamID')
+                .rename(columns = {'TeamID':teamID1})
+                .set_index(teamID1, append = True)
+                .rename(columns = dict(
+                    map(lambda field: 
+                        (field, '{}{}'.format(teamLabel1, field)),
+                        statsDF.columns.tolist()
+                        )
+                    )
+                )
+            ),
+        left_on = ['Season', teamID1],
+        right_index = True,
+        how = 'left'
+        )
+
 
     # Merge team statsDS on teamID2
-    matchupNew = matchupNew.merge((statsDF.reset_index('TeamID')
-                                         .rename(columns = {'TeamID':teamID2})
-                                         .set_index(teamID2, append = True)
-                                         .rename(columns = dict(map(lambda field: (field, '{}{}'.format(teamLabel2, field)),
-                                                                    statsDF.columns.tolist())))
-                                         ),
-                                        left_on = ['Season', teamID2],
-                                        right_index = True,
-                                        how = 'left'
-                                        )
+    matchupNew = matchupNew.merge(
+        (statsDF.reset_index('TeamID')
+                .rename(columns = {'TeamID':teamID2})
+                .set_index(teamID2, append = True)
+                .rename(columns = dict(
+                    map(lambda field: 
+                        (field, '{}{}'.format(teamLabel2, field)),
+                        statsDF.columns.tolist()
+                        )
+                    )
+                )
+            ),
+        left_on = ['Season', teamID2],
+        right_index = True,
+        how = 'left'
+        )
 
 
 
@@ -768,15 +792,22 @@ def createMatchups(matchupDF,
 
 
      
-    colCount = pd.DataFrame(map(lambda c: re.sub('^{}(?!.*ID$)|^{}(?!.*ID$)'.format(teamLabel1, teamLabel2), '', c), 
-                                 matchupNew.columns.tolist()), 
-                            columns = ['field']).groupby('field').agg({'field': lambda c: len(c)})
+    colCount = pd.DataFrame(
+        map(lambda c: re.sub(
+            '^{}(?!.*ID$)|^{}(?!.*ID$)'.format(teamLabel1, teamLabel2), 
+            '', c), 
+            matchupNew.columns.tolist()), 
+        columns = ['field']).groupby('field').agg({'field': lambda c: len(c)})
 
     # Identify numeric columns to calculate deltas
     deltaCols = colCount[colCount['field'] >= 2]
     
-    matchupCols = list(filter(lambda c: matchupNew['{}{}'.format(teamLabel1, c)].dtype.hasobject == True,
-                       deltaCols.index.get_level_values('field')))
+    matchupCols = list(
+        filter(lambda c: 
+               matchupNew['{}{}'.format(teamLabel1, c)].dtype.hasobject == True,
+               deltaCols.index.get_level_values('field')
+               )
+            )
     
     deltaCols = list(filter(lambda c: c not in matchupCols,
                        deltaCols.index.get_level_values('field')))
@@ -787,8 +818,10 @@ def createMatchups(matchupDF,
     # Calculate statistic deltas if necessary
     if calculateDelta == True:       
         for col in deltaCols:
-            matchupNew.loc[:, '{}Delta'.format(col)] = (matchupNew.loc[:, '{}{}'.format(teamLabel1, col)]        
-                                                  - matchupNew.loc[:, '{}{}'.format(teamLabel2, col)])
+            matchupNew.loc[:, '{}Delta'.format(col)] = (
+                matchupNew.loc[:, '{}{}'.format(teamLabel1, col)]        
+                - matchupNew.loc[:, '{}{}'.format(teamLabel2, col)]
+                )
    
         # Update column names
         deltaCols = list(map(lambda col: '{}Delta'.format(col), deltaCols))
@@ -798,13 +831,20 @@ def createMatchups(matchupDF,
     # Calculate matchup attributes if necessary
     if calculateMatchup == True:
         for col in list(set(matchupCols + extraMatchupCols)):
-            matchupNew.loc[:, '{}Matchup'.format(col)] = pd.Series(createMatchupField(matchupNew, 
-                                                                                       '{}{}'.format(teamLabel1, col), 
-                                                                                       '{}{}'.format(teamLabel2, col), sort = False))
+            matchupNew.loc[:, '{}Matchup'.format(col)] = pd.Series(
+                createMatchupField(matchupNew, 
+                                   '{}{}'.format(teamLabel1, col), 
+                                   '{}{}'.format(teamLabel2, col), 
+                                   sort = False)
+                )
     
 
          # Update column names
-        matchupCols = list(map(lambda col: '{}Delta'.format(col), list(set(matchupCols + extraMatchupCols))))
+        matchupCols = list(
+            map(lambda col: '{}Matchup'.format(col), 
+                list(set(matchupCols + extraMatchupCols))
+                )
+            )
     
     else: matchupCols = []
         
@@ -823,20 +863,6 @@ def createMatchups(matchupDF,
     return matchupNew[returnCols]
     
         
-#    if returnStatCols == True:
-#        return matchupNew
-#    
-#    # Don't return stat cols
-#    else:
-#        deltaReturnCols = filter(lambda c: (c.endswith('Delta')) | (c.endswith('Matchup')) | (c in colCount[colCount['field'] != 2].index.get_level_values('field')),
-#                                                       matchupNew.columns.tolist())
-#        
-#        
-#        return matchupNew.loc[:, deltaReturnCols]
-#    
-#
-#    
-#    return matchupNew
 
 
 
@@ -2014,6 +2040,39 @@ for df in map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD')):
 
 # Log process time
 logProcessTime('wins against top N teams', timeLog)
+
+
+
+#%% TOURNAMENT MATCHUP W/ SEASON STATS
+## ############################################################################
+
+# ADD TOURNAMENT SEED STATISTICS
+#
+# CALCULATE MATCHUP PAIRS FOR DUMMIES
+#  
+# CREATE MODEL DATASET WITH SAME COLUMN CALCULATIONS
+
+calculateDelta = True
+returnStatCols = True
+calculateMatchup = True
+
+for df in ['tGamesC', 'tGamesD']:
+   
+
+    # Reference assocated regular season data
+    dataDict[df + 'statsModelData'] = createMatchups(
+        matchupDF = dataDict[df + 'singleTeam'].loc[:, ['Season', 'TeamID', 'opponentID', 'win']], 
+        statsDF = dataDict['{}TeamSeasonStats'.format(df.replace('t', 'r'))],
+        teamID1 = 'TeamID',
+        teamID2 = 'opponentID',
+        teamLabel1 = 'team',
+        teamLabel2 = 'opp',
+        calculateDelta = calculateDelta,
+        calculateMatchup = calculateMatchup,
+        extraMatchupCols = ['seedRank']
+        )
+
+
 
 
 
