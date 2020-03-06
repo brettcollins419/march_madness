@@ -2075,6 +2075,239 @@ for df in ['tGamesC', 'tGamesD']:
 
 
 
+#%% CONFERENCE AND CONFERENCE CHAMPS MATCHUPS 
+## ############################################################################
+
+
+# Tournament Dataset
+x = dataDict['tGamesCstatsModelData']
+
+# Win probability based on conferences 
+confDeltaStats = x.groupby(['teamconfGroups', 'teamconfChamp', 'oppconfGroups', 'oppconfChamp']).agg({'TeamID': np.count_nonzero,
+                                                                           'win' : np.mean
+                                                     }).rename(columns = {'TeamID': 'numGames', 'win': 'winPct'})
+
+    
+    
+# Remove duplicates for same conferences
+sameConfFilter = ((confDeltaStats.index.get_level_values('teamconfGroups') == confDeltaStats.index.get_level_values('oppconfGroups'))
+                & (confDeltaStats.index.get_level_values('teamconfChamp') == confDeltaStats.index.get_level_values('oppconfChamp'))
+                )
+
+confDeltaStats.loc[sameConfFilter, 'numGames'] = confDeltaStats['numGames'] * 0.5
+
+
+
+# Pivot data for heatmap
+confDeltaStatsPiv = pd.pivot_table(data = confDeltaStats.reset_index(), 
+                   values = ['winPct', 'numGames'], 
+                   index = ['oppconfGroups', 'oppconfChamp'], 
+                   columns = ['teamconfGroups', 'teamconfChamp'])
+
+
+
+# Heat Map of win % by conference matchups & # of games
+fig, ax = plt.subplots(nrows = 1, ncols = 2, figsize = (10,6))
+
+sns.heatmap(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], 
+            annot = True, 
+            fmt='.2f',
+            mask = heatMapMask(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], k = 1),
+            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            xticklabels = confDeltaStatsPiv.columns[confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'].droplevel(None),
+            ax = ax[0])
+
+sns.heatmap(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], 
+            annot = confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'numGames'], 
+            fmt = ".0f",
+            mask = heatMapMask(confDeltaStatsPiv.loc[:, confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'], k = 1),
+            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            xticklabels = confDeltaStatsPiv.columns[confDeltaStatsPiv.columns.get_level_values(None) == 'winPct'].droplevel(None),
+            ax = ax[1])
+
+fig.suptitle('Win % based on Conference Matchups (1 = Conf. Champ)', fontsize = 16)
+#fig.tight_layout()
+fig.show()   
+
+
+
+
+
+#%% SEED RANK MATCHUPS
+## ############################################################################
+
+# Win probability based on seed rank difference
+#srDeltaStats = x.groupby(['highSeed', 'lowSeed', 'seedRankDeltaAbs']).agg({'WTeamID': np.count_nonzero,
+#                                                                           'seedRankDelta' : (lambda d: (0.5 * len(d) if d.iloc[0] == 0 else len(filter(lambda g: g < 0, d))) / len(d))
+#                                                     }).rename(columns = {'WTeamID': 'numGames', 'seedRankDelta': 'winPct'})
+
+
+# Win probability based on seed rank difference
+srDeltaStats = x.groupby(['teamseedRank', 'oppseedRank', 'seedRankDelta']).agg({'TeamID': np.count_nonzero,
+                                                                           'win' : np.mean
+                                                     }).rename(columns = {'TeamID': 'numGames', 'win': 'winPct'})
+
+    
+# Since each game is represented from each team's perspective, counts along the diagonal are duplicated and mean will always be 50%
+sameSeedFilter = (srDeltaStats.index.get_level_values('teamseedRank') == srDeltaStats.index.get_level_values('oppseedRank'))
+srDeltaStats.loc[sameSeedFilter, 'numGames'] = srDeltaStats['numGames'] * 0.5
+   
+   
+
+# Heat Map of win % by seed matchups (high vs. low) & # of games
+fig, ax = plt.subplots(nrows = 1, ncols = 2, figsize = (10,6))
+
+sns.heatmap(srDeltaStats.reset_index(['teamseedRank', 'oppseedRank']).pivot(index = 'oppseedRank', columns = 'teamseedRank', values = 'winPct'), 
+            annot = True, 
+            fmt='.2f',
+            mask = heatMapMask(srDeltaStats.reset_index(['teamseedRank', 'oppseedRank']).pivot(index = 'oppseedRank', columns = 'teamseedRank', values = 'winPct'), k=1),
+            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            ax = ax[0])
+
+sns.heatmap(srDeltaStats.reset_index(['teamseedRank', 'oppseedRank']).pivot(index = 'oppseedRank', columns = 'teamseedRank', values = 'winPct'), 
+            annot = srDeltaStats.reset_index(['teamseedRank', 'oppseedRank']).pivot(index = 'oppseedRank', columns = 'teamseedRank', values = 'numGames'), 
+            fmt = ".0f",
+            cmap = 'RdYlGn',
+            mask = heatMapMask(srDeltaStats.reset_index(['teamseedRank', 'oppseedRank']).pivot(index = 'oppseedRank', columns = 'teamseedRank', values = 'winPct'), k=1),
+            square = True,
+            linewidths = 1, 
+            linecolor = 'k',
+            ax = ax[1])
+
+fig.suptitle('Win % based on Seed Rank Matchups', fontsize = 16)
+#fig.tight_layout()
+fig.show()   
+
+
+
+# Heat Map of win % by high seed and seed rank delta
+fig, ax = plt.subplots(nrows = 1, ncols = 2, figsize = (10,6))
+
+sns.heatmap(srDeltaStats.reset_index(['teamseedRank', 'seedRankDelta']).pivot(index = 'seedRankDelta', columns = 'teamseedRank', values = 'winPct'), 
+            annot = True, 
+            fmt = ".2f",
+            # square = True,
+            linewidths = 1, 
+            linecolor = 'k',
+            cmap = 'RdYlGn',
+            ax = ax[0])
+
+sns.heatmap(srDeltaStats.reset_index(['teamseedRank', 'seedRankDelta']).pivot(index = 'seedRankDelta', columns = 'teamseedRank', values = 'winPct'), 
+            annot = srDeltaStats.reset_index(['teamseedRank', 'seedRankDelta']).pivot(index = 'seedRankDelta', columns = 'teamseedRank', values = 'numGames'), 
+            fmt = ".0f",
+#            square = True,
+            cmap = 'RdYlGn',
+            linewidths = 1, 
+            linecolor = 'k',
+            ax = ax[1])
+fig.suptitle('Seed Rank Heat Map based on Rank Delta', fontsize = 16)
+#fig.tight_layout()
+fig.show()
+
+
+# Scatter Plot of win % by seed matchups (high vs. low)
+fig, ax = plt.subplots(1, figsize = (10,6))
+sns.scatterplot(x = 'teamseedRank', 
+                y = 'oppseedRank', 
+                size = 'numGames', 
+                hue = 'winPct', 
+                edgecolors = 'k',
+                palette = 'RdYlGn',
+                marker = 'o',
+#                sizes = (50,100),
+                data = srDeltaStats.reset_index()[srDeltaStats.index.get_level_values('seedRankDelta') >= 0], 
+                ax = ax)
+
+# Add edges 
+plt.scatter(x = 'teamseedRank', 
+                 y = 'oppseedRank', 
+                 s = 'numGames', 
+                 c = 'winPct', 
+                 cmap = 'RdYlGn',
+                 edgecolors = 'k',
+                 data = srDeltaStats.reset_index()[srDeltaStats.index.get_level_values('seedRankDelta') >= 0])
+
+#fig.tight_layout()
+fig.show()
+
+
+# Distribution plot of Seed Rank Deltas win %
+fig, ax = plt.subplots(1, figsize = (10,6))
+sns.boxplot(x = 'seedRankDelta', y = 'winPct', data = srDeltaStats.reset_index(), ax = ax)
+sns.swarmplot(x = 'seedRankDelta', y = 'winPct', 
+              color = 'k',
+              data = srDeltaStats.reset_index(), ax = ax)
+ax.grid(True)
+fig.suptitle('Distribution of Win % with difference rank matchups with same Delta', fontsize = 16)
+fig.show()
+
+
+#%% OHE MATCHUPS
+## ############################################################################
+
+
+
+######################################################
+### CONFERENCE MATCHUP GROUPS FOR ONE HOT ENCODING ###
+### & SEED RANK MATCHUP GROUPS FOR ONE HOT ENCODING ##
+######################################################
+
+oheDict = {}
+
+# Thought about isolating only certain matchups for encoding, but decided to bin matchups based
+# on average win % and then create a dictionary lookup to limit the number of matchups to encode
+# Any conference / confchamp matchup not in dataset gets assigned to the bin of 0.5 since win probablity impact is unknown
+
+# confDeltaStats.loc[:, 'numGamesLog'] = map(lambda x: round(x, int(np.floor(np.log10(x))*-1) - 1*(x<10)), confDeltaStats['numGames'])
+
+# Create win % Bins
+binIncrement = 0.1
+
+confDeltaStats.loc[:, 'winPctBin'] = list(
+    map(lambda w: int(100 *(round(w / binIncrement, 0) * binIncrement)), 
+        confDeltaStats['winPct'])
+    )
+
+# Counts number of matchup groups and sum # of games in each bin
+confDeltaStats.groupby('winPctBin').agg({'winPct': lambda x: len(x),
+                                           'numGames': np.sum}).rename(columns = {'winPct':'numMatchups'})
+
+# Store bins for OHE with predictions
+oheDict['confs'] = confDeltaStats['winPctBin'].to_dict()
+
+
+
+# Repeat process for seed rank matchups
+
+srDeltaStats.loc[:, 'winPctBin'] = list(
+    map(lambda w: int(100 *(round(w / binIncrement, 0) * binIncrement)), 
+        srDeltaStats['winPct'])
+    )
+
+srDeltaStats.groupby('winPctBin').agg({'winPct': lambda x: len(x),
+                                           'numGames': np.sum}).rename(columns = {'winPct':'numMatchups'})
+
+    
+oheDict['seedRanks'] = srDeltaStats.reset_index('seedRankDelta')['winPctBin'].to_dict()
+
+# Prioritize matchup categories for encoding based on # of Games (support) and delta from 50% (lift)
+#confDeltaStats.loc[:, 'lift'] = confDeltaStats['winPct'] / 0.5
+#confDeltaStats.loc[:, 'liftsupport'] = (np.abs(confDeltaStats['winPct'] - 0.5) * confDeltaStats['numGames'])
+#confDeltaStats.sort_values('liftsupport', ascending = False, inplace = True)
+#confDeltaStats.loc[:, 'liftsupport_rank'] = range(confDeltaStats.shape[0])
+
+
+
+
 
 #%% DEV
 ## ############################################################################
