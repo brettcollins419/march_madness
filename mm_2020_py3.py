@@ -424,6 +424,118 @@ def generateOldTourneyResults(tSeeds, tSlots, tGames, yr):
 
 
 
+def performPCA(data, pcaExcludeCols = [], 
+               scaler = StandardScaler(), 
+               dataLabel = None, plotComponents = True,
+               labelFontSize = 20,
+               titleFontSize = 24,
+               tickFontSize = 16):
+    
+    '''Perform principle component analysis on pandas dataframe
+        (excluding any defined or non-numeric columns).
+        
+        First scale the data (default StandardScaler) and then perform
+        full PCA.
+        
+        Plot component weightings and explained variance if desired.
+        
+        Return principle component array with weightings
+    '''
+
+
+    # Filter columns for PCA
+    pcaCols = [
+        col for col in data.columns.tolist()
+        if ((data[col].dtype.hasobject == False) 
+                & (col not in pcaExcludeCols))
+        ]
+
+
+    # Build & fit PCA pipeline
+    pcaPipe = Pipeline([('sScale', scaler), 
+                        ('pca', PCA(n_components = len(pcaCols), 
+                                    random_state = 1127))])
+   
+    pcaPipe.fit(data[pcaCols])
+
+
+    # Plot PCA Results
+    if plotComponents == True:
+        
+        fig, axs = plt.subplots(1, 2, figsize = (0.9*GetSystemMetrics(0)//96, 
+                                                 0.8*GetSystemMetrics(1)//96)
+                                )
+        
+        plt.suptitle(' '.join([dataLabel, 'PCA Analysis']), fontsize = 36)    
+        
+        
+        # Determine how many labels to plot so that axis isn' cluttered
+        axisLabelFreq = len(pcaCols) // 20 + 1
+        
+        xAxisLabelsMask =  list(
+                map(lambda x: x % axisLabelFreq == 0
+                    , range(len(pcaCols)))
+                )
+        
+        xAxisLabels = data[pcaCols].columns[xAxisLabelsMask]
+        
+        # Plot feature weights for each component
+        sns.heatmap(pcaPipe.named_steps['pca'].components_, 
+                    square = False, 
+                    cmap = 'coolwarm', 
+                    ax=axs[0], 
+                    #annot=True,
+                    xticklabels = axisLabelFreq,
+                    yticklabels = axisLabelFreq)
+        
+        # Add feature lables & format plot    
+        axs[0].set_xticklabels(xAxisLabels, 
+                               fontsize = tickFontSize,
+                               rotation = 90)
+        
+        axs[0].tick_params(labelsize = tickFontSize)
+        
+        axs[0].set_title('PCA Components Feature Weights', 
+                         fontsize = titleFontSize)
+        axs[0].set_xlabel('Feature', 
+                          fontsize = labelFontSize)
+        axs[0].set_ylabel('PCA #', 
+                          fontsize = labelFontSize)
+           
+        
+        # Plot explained variance curve
+        axs[1].plot(
+            range(pcaPipe.named_steps['pca'].n_components_), 
+            np.cumsum(pcaPipe.named_steps['pca'].explained_variance_ratio_), 
+            '-bo', 
+            markersize = 20, 
+            linewidth = 10)
+        
+        
+        # Convert y-axis to %
+        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), 
+                                   axs[1].get_yticks()
+                                   )
+                               )
+        
+        axs[1].set_title('Explained Variance vs. # of Components', 
+                         fontsize = titleFontSize)
+        
+        axs[1].set_xlabel('# of Features', 
+                          fontsize = labelFontSize)
+        
+        axs[1].set_ylabel('Explained Variance', 
+                          fontsize = labelFontSize)
+        
+        axs[1].tick_params(labelsize = tickFontSize)
+        
+        axs[1].grid()
+
+
+    return pcaPipe
+
+
+
 def pcaVarCheck(n, data):
     '''Calculate PCA and return the pca object & explained variance'''
     
@@ -1156,12 +1268,13 @@ logProcessTime('single team datasets', timeLog)
 #       develop contribution of each axis
 
 
+toPerformPCA = True
+
+
 # Base columns (carry over from 2019)
 colsBase = ['Season', 'DayNum', 'WLoc', 'NumOT', 'scoreGap']
 
-performPCA = True
-
-if performPCA == True:
+if toPerformPCA == True:
     
     teamStatsDFs = list(
             filter(lambda dfName: 
@@ -1169,161 +1282,28 @@ if performPCA == True:
                 dataDict.keys())
             )
     
-    gamesStatsDFs = list(
-            filter(lambda dfName: 
-                len(re.findall('r.*SeasonStatsMatchup.*', dfName))>0, 
-                dataDict.keys())
-            )
+    # gamesStatsDFs = list(
+    #         filter(lambda dfName: 
+    #             len(re.findall('r.*SeasonStatsMatchup.*', dfName))>0, 
+    #             dataDict.keys())
+    #         )
 
-    
-    labelFontSize = 20
-    titleFontSize = 24
-    tickFontSize = 16
     
     pcaDict = {}
     
-    
-    ### PCA Analysis on Team season statistics
-    
-    pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID']
-    
+
+    # PCA Analysis on Team season statistics  
     for df in teamStatsDFs:
-    
-        # Get columns for transformation using PCA
-#        pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
-        pcaCols = list(filter(lambda n: n not in pcaExcludeCols, dataDict[df].columns))
-     
-        pcaPipe = Pipeline([('sScale', StandardScaler()), 
-                            ('pca', PCA(n_components = len(pcaCols), 
-                                        random_state = 1127))])
-       
-        #pca = PCA(n_components = len(pcaCols), random_state = 1127)
-        
-        pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
-    
-    
-        fig, axs = plt.subplots(1, 2, figsize = (10,6))
-        plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
-        
-        
-        # Determine how many labels to plot so that axis isn' cluttered
-        axisLabelFreq = len(pcaCols) // 20 + 1
-        xAxisLabelsMask =  list(
-                map(lambda x: x % axisLabelFreq == 0
-                    , range(len(pcaCols)))
-                )
-        xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
-        
-        # Plot feature weights for each component
-        sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
-                    square = False, 
-                    cmap = 'coolwarm', 
-                    ax=axs[0], 
-                    #annot=True,
-                    xticklabels = axisLabelFreq,
-                    yticklabels = axisLabelFreq)
-        
-        # Add feature lables & format plot    
-        axs[0].set_xticklabels(xAxisLabels, 
-                               fontsize = tickFontSize,
-                               rotation = 90)
-        axs[0].tick_params(labelsize = tickFontSize)
-        axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
-        axs[0].set_xlabel('Feature', fontsize = labelFontSize)
-        axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
-           
-        # Plot explained variance curve
-        axs[1].plot(range(pcaDict[df].named_steps['pca'].n_components_), 
-                    np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
-                    '-bo', 
-                    markersize = 20, 
-                    linewidth = 10)
-        
-        # Convert y-axis to %
-        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-        
-        axs[1].set_title('Explained Variance vs. # of Components', 
-                         fontsize = titleFontSize)
-        axs[1].set_xlabel('# of Features', 
-                          fontsize = labelFontSize)
-        axs[1].set_ylabel('Explained Variance', 
-                          fontsize = labelFontSize)
-        axs[1].tick_params(labelsize = tickFontSize)
-        axs[1].grid()
-    
-    
-    
-    
-    ### PCA Analysis on matchup dataframes
-    
-    pcaExcludeCols = ['WTeamID', 'LTeamID'] + colsBase
-    
-    for df in gamesStatsDFs:
-    
-        # Get columns for transformation using PCA
-        #pcaCols = colSumDict[df]['colName'][~colSumDict[df]['isObject']]
-        pcaCols = filter(lambda n: n not in pcaExcludeCols, pcaCols)
-     
-        pcaPipe = Pipeline([('sScale', StandardScaler()), 
-                            ('pca', PCA(n_components = len(pcaCols), 
-                                        random_state = 1127))])
-       
-        #pca = PCA(n_components = len(pcaCols), random_state = 1127)
-        
-        pcaDict[df] = pcaPipe.fit(dataDict[df][pcaCols])
-    
-    
-        fig, axs = plt.subplots(1, 2, figsize = (10,6))
-        plt.suptitle(df + ' PCA Analysis', fontsize = 36)    
-        
-        
-        # Determine how many labels to plot so that axis isn' cluttered
-        axisLabelFreq = len(pcaCols) // 20 + 1
-        xAxisLabelsMask =  map(lambda x: x % axisLabelFreq == 0, range(len(pcaCols)))
-        xAxisLabels = dataDict[df][pcaCols].columns[xAxisLabelsMask]
-        
-        # Plot feature weights for each component
-        sns.heatmap(pcaDict[df].named_steps['pca'].components_, 
-                    square = False, 
-                    cmap = 'coolwarm', 
-                    ax=axs[0], 
-                    #annot=True,
-                    xticklabels = axisLabelFreq,
-                    yticklabels = axisLabelFreq)
-        
-        # Add feature lables & format plot    
-        axs[0].set_xticklabels(xAxisLabels, 
-                               fontsize = tickFontSize,
-                               rotation = 90)
-        axs[0].tick_params(labelsize = tickFontSize)
-        axs[0].set_title('PCA Components Feature Weights', fontsize = titleFontSize)
-        axs[0].set_xlabel('Feature', fontsize = labelFontSize)
-        axs[0].set_ylabel('PCA #', fontsize = labelFontSize)
-           
-        # Plot explained variance curve
-        axs[1].plot(range(pcaDict[df].named_steps['pca'].n_components_), 
-                    np.cumsum(pcaDict[df].named_steps['pca'].explained_variance_ratio_), 
-                    '-bo', 
-                    markersize = 20, 
-                    linewidth = 10)
-        
-        # Convert y-axis to %
-        axs[1].set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-        
-        axs[1].set_title('Explained Variance vs. # of Components', 
-                         fontsize = titleFontSize)
-        axs[1].set_xlabel('# of Features', 
-                          fontsize = labelFontSize)
-        axs[1].set_ylabel('Explained Variance', 
-                          fontsize = labelFontSize)
-        axs[1].tick_params(labelsize = tickFontSize)
-        axs[1].grid()
-    
-    
-   
-    
-    
-    
+
+        pcaDict[df] = performPCA(
+            data = dataDict[df],
+            pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID'],
+            scaler = StandardScaler(),
+            dataLabel = df,
+            plotComponents = True
+            )
+
+  
     
     
 #%% CONFERENCE TOURNAMENT CHAMPIONS
@@ -2297,13 +2277,62 @@ srDeltaStats.groupby('winPctBin').agg({'winPct': lambda x: len(x),
                                            'numGames': np.sum}).rename(columns = {'winPct':'numMatchups'})
 
     
-oheDict['seedRanks'] = srDeltaStats.reset_index('seedRankDelta')['winPctBin'].to_dict()
+oheDict['seedRanks'] = (
+    srDeltaStats.reset_index('seedRankDelta')['winPctBin'].to_dict()
+    )
 
 # Prioritize matchup categories for encoding based on # of Games (support) and delta from 50% (lift)
 #confDeltaStats.loc[:, 'lift'] = confDeltaStats['winPct'] / 0.5
 #confDeltaStats.loc[:, 'liftsupport'] = (np.abs(confDeltaStats['winPct'] - 0.5) * confDeltaStats['numGames'])
 #confDeltaStats.sort_values('liftsupport', ascending = False, inplace = True)
 #confDeltaStats.loc[:, 'liftsupport_rank'] = range(confDeltaStats.shape[0])
+
+
+
+
+
+#%% PRINCIPLE COMPONENT ANALYSIS AGAIN
+## ############################################################################
+    
+# Perform PCA analysis on each Team Stats dataframe
+#   Steps (use pipeline):
+#       Scale Data
+#       Calculate PCA for same number of dimensions in dataset to
+#       develop contribution of each axis
+
+
+toPerformPCA = True
+
+
+if toPerformPCA == True:
+    
+    teamStatsDFs = list(
+            filter(lambda dfName: 
+                len(re.findall('r.*TeamSeasonStats.*', dfName))>0, 
+                dataDict.keys())
+            )
+    
+    # gamesStatsDFs = list(
+    #         filter(lambda dfName: 
+    #             len(re.findall('r.*SeasonStatsMatchup.*', dfName))>0, 
+    #             dataDict.keys())
+    #         )
+
+    
+    pcaDict = {}
+    
+
+    # PCA Analysis on Team season statistics  
+    for df in teamStatsDFs:
+
+        pcaDict[df] = performPCA(
+            data = dataDict[df],
+            pcaExcludeCols = ['Season', 'WTeamID', 'LTeamID'],
+            scaler = StandardScaler(),
+            dataLabel = df,
+            plotComponents = True
+            )
+
 
 
 
@@ -2321,22 +2350,24 @@ oheDict['seedRanks'] = srDeltaStats.reset_index('seedRankDelta')['winPctBin'].to
 ### ##################### MAP TEAM CONFERENCES ################################
 ### ###########################################################################
 
-
-for df in list(map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD'))):
-    
-    dataDict[df].loc[:, 'ConfAbbrev'] = (
-            dataDict['teamConferences'].set_index(['Season', 'TeamID'])['ConfAbbrev']
-            )
-    
-    # New column with all small conferences grouped together
-    dataDict[df].loc[:, 'confGroups'] = list(
-            map(lambda conf: conf if conf in 
-                ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
-                else 'other',
-                dataDict[df]['ConfAbbrev'].values.tolist())
-            )
-    
-        
-print(timer())
+# =============================================================================
+# 
+# for df in list(map(lambda g: g + 'TeamSeasonStats', ('rGamesC', 'rGamesD'))):
+#     
+#     dataDict[df].loc[:, 'ConfAbbrev'] = (
+#             dataDict['teamConferences'].set_index(['Season', 'TeamID'])['ConfAbbrev']
+#             )
+#     
+#     # New column with all small conferences grouped together
+#     dataDict[df].loc[:, 'confGroups'] = list(
+#             map(lambda conf: conf if conf in 
+#                 ('big_east', 'big_twelve', 'acc', 'big_ten', 'sec')
+#                 else 'other',
+#                 dataDict[df]['ConfAbbrev'].values.tolist())
+#             )
+#     
+#         
+# print(timer())
+# =============================================================================
 
 
