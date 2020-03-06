@@ -2335,6 +2335,48 @@ if toPerformPCA == True:
 
 
 
+#%% CREATE TRAINING DATASET
+## ############################################################################
+        
+# #############################################################################
+# ############### BUILD NEW MODELING DATASET WITH NEW FEATURES ################
+# #############################################################################
+
+# STEPS 
+# 1. Create Matchups (need conferences and conference champ flag)
+# 2. Calculate metric deltas
+# 3. Need to calculate bins for strength deltas
+# 3. Calculate interactions
+# 4. OHE seed rank matchups
+# 5. OHE conference matchups
+    
+
+baseCols = ['Season', 'TeamID', 'opponentID']
+statCols = ['seedRank', 'spreadStrengthOppStrengthRank', 'wins050', 'confChamp', 'confGroups']
+statCols = []
+
+modelMatchups = createMatchups(dataDict['tGamesCsingleTeam'][baseCols + ['win']],
+                               statsDF = dataDict['rGamesCTeamSeasonStats'],
+                               teamID1 = 'TeamID',
+                               teamID2 = 'opponentID',
+                               teamLabel1 = 'team',
+                               teamLabel2 = 'opp',
+                               calculateDelta = False, 
+                               calculateMatchup = False, 
+                               extraMatchupCols = [],
+                               returnTeamID1StatCols = True,
+                               returnTeamID2StatCols = True,
+                               returnBaseCols = True,
+                               reindex = True)
+
+
+
+modelMatchups.loc[:, 'confMatchup'] = pd.Series(map(lambda m: tuple(m), 
+                                                 modelMatchups[['teamconfGroups', 'teamconfChamp', 'oppconfGroups', 'oppconfChamp']].values.tolist()))
+
+modelMatchups.loc[:, 'seedMatchup'] = pd.Series(map(lambda m: tuple(m), 
+                                                 modelMatchups[['teamseedRank', 'oppseedRank']].values.tolist()))
+
 
 
 
