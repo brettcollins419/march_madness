@@ -298,7 +298,8 @@ def modelAnalysisPipeline(modelPipe, data = [],
                           testTrainSplit = 0.2,
                           gridSearch = False,
                           paramGrid = None,
-                          scoring = None):
+                          scoring = None,
+                          crossFolds = 5):
 
     '''Perform model pipeline and perfrom grid search if necessary.
     
@@ -322,7 +323,10 @@ def modelAnalysisPipeline(modelPipe, data = [],
                                                         test_size = testTrainSplit)
     # Perform grid search if necessary
     if gridSearch == True:
-        modelPipe = GridSearchCV(modelPipe, paramGrid, scoring = scoring)
+        modelPipe = GridSearchCV(modelPipe, 
+                                 paramGrid, 
+                                 scoring = scoring, 
+                                 cv = crossFolds)
     
     # Fit pipleine
     modelPipe.fit(xTrain, yTrain)
@@ -428,7 +432,8 @@ def generateOldTourneyResults(tSeeds, tSlots, tGames, yr):
 
 def performPCA(data, pcaExcludeCols = [], 
                scaler = StandardScaler(), 
-               dataLabel = None, plotComponents = True,
+               dataLabel = '', 
+               plotComponents = True,
                labelFontSize = 20,
                titleFontSize = 24,
                tickFontSize = 16):
@@ -468,7 +473,8 @@ def performPCA(data, pcaExcludeCols = [],
                                                  0.8*GetSystemMetrics(1)//96)
                                 )
         
-        plt.suptitle(' '.join([dataLabel, 'PCA Analysis']), fontsize = 36)    
+        plt.suptitle(' '.join([dataLabel, 'PCA Analysis']).strip(), 
+                     fontsize = 36)    
         
         
         # Determine how many labels to plot so that axis isn' cluttered
@@ -2562,10 +2568,6 @@ for df in ('tGamesC',
 #%% BINNING & ENCODING FEATURES
 ## ############################################################################
     
-# =============================================================================
-# BINNING AND ENCODING FEATURES FOR MODELING
-# =============================================================================
-    
 
 # One Hot Encode Matchups
 
@@ -2622,7 +2624,154 @@ modelCols = list(
 #%% MODEL DEVELOPMENT & GRID SEARCH
 ## ############################################################################
 
+df = 'tGamesC'
 
+modelDict = {}
+
+modelDict[df] = {}
+
+performPCA(modelMatchups[modelMatchups['Season'] >= 2003],
+           pcaExcludeCols = ['Season', 'TeamID', 'opponentID'])
+
+pipe = Pipeline([
+    ('sScale', StandardScaler()), 
+    # ('sScale', QuantileTransformer()),
+    # ('sScale', MinMaxScaler()),
+    ('pca',  PCA()),
+    # ('poly', PolynomialFeatures(degree = 2, interaction_only = True)),
+    # ('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
+    # ('fReduce', fReduce),
+    # ('fReduce', PCA(n_components = 10)),
+    ('mdl', LogisticRegression(random_state = 1127, max_iter = 500))
+    ])
+
+
+
+paramGrid = [
+#     {'mdl' : [ExtraTreesClassifier(n_estimators = 50,
+#                                   n_jobs = -1,
+#                                   random_state = 1127), 
+#               RandomForestClassifier(random_state = 1127,
+#                                     n_estimators = 50,
+#                                     n_jobs = -1,
+#                                     verbose = 0),
+#               GradientBoostingClassifier(n_estimators = 50,
+#                                         random_state = 1127)
+#               ],                        
+#     'mdl__min_samples_split' : np.arange(.005, .1, .01),
+#     'mdl__min_samples_leaf' : range(2, 11, 4),
+# #                 'mdl__n_estimators' : [25, 100, 200]
+#         },
+                
+            {'mdl' : [LogisticRegression(random_state = 1127)],
+             'mdl__C' : list(map(lambda i: 10**i, range(-2,2)))
+                },
+                
+            # {'mdl' : [SVC(probability = True)],
+            #  'mdl__C' : map(lambda i: 10**i, range(-1,4)),
+            #  'mdl__gamma' : map(lambda i: 10**i, range(-4,1))
+            #     },
+                
+            # {'mdl' : [KNeighborsClassifier()],
+            #  'mdl__n_neighbors' : range(3, 15, 2)
+            #     }
+            ]
+
+# Run grid search on modeling pipeline
+timer()
+modelDict[df]['analysis'] = modelAnalysisPipeline(modelPipe = pipe,
+                      data = modelMatchups[modelMatchups['Season'] >= 2003],
+                      # indCols = [],
+                      excludeCols = ['Season', 'TeamID', 'opponentID'],
+                      targetCol = 'win',
+                      testTrainSplit = 0.2,
+                      gridSearch=True,
+                      paramGrid=paramGrid,
+                      scoring = 'roc_auc',
+                      crossFolds = 5)
+modelDict[df]['calcTime'] = timer()
+
+
+
+#%% VISUALIZE MODEL RESULTS
+## ############################################################################
+
+# Plot Results
+gridSearchResults = pd.DataFrame(modelDict[df]['analysis']['pipe'].cv_results_)
+
+gridSearchResults['mdl'] = list(
+    map(lambda m: str(m).split('(')[0], 
+        gridSearchResults['param_mdl'].values.tolist())
+    )
+
+
+
+gsPlotCols = list(
+    filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
+           gridSearchResults.columns.tolist()
+           )
+    )
+
+# Get summary for each model type and best model for each model type
+mdlBests = []
+for label, metric in [('mean', np.mean), ('median', np.median), ('max',np.max)]:
+    
+    t = gridSearchResults.groupby('mdl').agg({'mean_test_score':metric})
+    t.rename(columns = {'mean_test_score':label}, inplace = True)
+    mdlBests.append(t)
+    
+del(t)    
+    
+mdlBests = pd.concat(mdlBests, axis = 1)
+
+mdlBests = (mdlBests.set_index('max', append = True)
+                    .merge(gridSearchResults[['mdl', 'mean_test_score', 'param_mdl', 'params']], 
+                           left_index = True, 
+                           right_on = ['mdl', 'mean_test_score'], 
+                           how = 'inner')
+                           )
+mdlBests.rename(columns = {'mean_test_score':'max'}, inplace = True)
+
+# Make sure there's only a single value for each model type
+mdlBests = mdlBests.groupby('mdl').first()    
+
+modelDict[df]['bests'] = mdlBests
+modelDict[df]['gridResults'] = gridSearchResults
+
+#type(mdlBests['param_mdl'].iloc[0])
+
+# Plot Results
+fig, ax = plt.subplots(len(gsPlotCols))
+plt.suptitle('Grid Search Results by Model Type {}'.format(df), fontsize = 24)
+
+swPlot = True
+
+for i, col in enumerate(gsPlotCols):
+    sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
+    if swPlot == True:    
+        sns.swarmplot(x = 'mdl', y = col, 
+                      data = gridSearchResults, 
+                      ax = ax[i], 
+                      color = 'grey', 
+                      size = 6)
+
+    #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+    ax[i].set_ylabel(col, fontsize = 12)
+
+    ax[i].grid()      
+       
+    if i == len(gsPlotCols) - 1:
+        ax[i].set_xlabel('Model Type', fontsize = 12)
+        ax[i].tick_params(labelsize = 12)
+    else:
+        ax[i].tick_params(axis = 'y', labelsize = 12)
+        ax[i].tick_params(axis = 'x', which = 'both', 
+                          top = 'off', bottom = 'off', 
+                          labelbottom = 'off')
+    
+del(mdlBests, gridSearchResults, gsPlotCols, numIndCols, numPCASplits)
+
+#%%
 #==============================================================================
 # MODEL DEVELOPMENT & GRID SEARCH
 #==============================================================================
@@ -2695,12 +2844,12 @@ for df in ('tGamesC',
 #                    },
                     
                 {'mdl' : [LogisticRegression(random_state = 1127)],
-                 'mdl__C' : map(lambda i: 10**i, xrange(-1,4))
+                 'mdl__C' : map(lambda i: 10**i, range(-1,4))
                     },
                     
                 {'mdl' : [SVC(probability = True)],
-                 'mdl__C' : map(lambda i: 10**i, xrange(-1,4)),
-                 'mdl__gamma' : map(lambda i: 10**i, xrange(-4,1))
+                 'mdl__C' : map(lambda i: 10**i, range(-1,4)),
+                 'mdl__gamma' : map(lambda i: 10**i, range(-4,1))
                     },
                     
                 {'mdl' : [KNeighborsClassifier()],
@@ -2732,7 +2881,8 @@ for df in ('tGamesC',
                           testTrainSplit = 0.2,
                           gridSearch=True,
                           paramGrid=paramGrid,
-                          scoring = 'roc_auc')
+                          scoring = 'roc_auc',
+                          crossFolds = 10)
     modelDict[df]['calcTime'] = timer()
     
     
