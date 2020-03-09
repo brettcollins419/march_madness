@@ -292,6 +292,7 @@ def modelAnalysis(model, data = [],
 
 def modelAnalysisPipeline(modelPipe, data = [], 
                           targetCol = None, 
+                          excludeCols = [],
                           indCols = None, 
                           testTrainDataList = [], 
                           testTrainSplit = 0.2,
@@ -307,7 +308,8 @@ def modelAnalysisPipeline(modelPipe, data = [],
     # Remove all non numeric columns from model
     if indCols == None:
         indCols = list(filter(lambda col: ((data[col].dtype.hasobject == False) 
-                                        & (col != targetCol)), 
+                                        & (col != targetCol)
+                                        & (col not in excludeCols)), 
                          data.columns.tolist()))
     
     # Assign test/train datasets if defined, otherwise perform test/train split
@@ -2352,7 +2354,15 @@ if toPerformPCA == True:
     
 
 baseCols = ['Season', 'TeamID', 'opponentID']
-statCols = ['seedRank', 'spreadStrengthOppStrengthRank', 'wins050', 'confChamp', 'confGroups']
+
+statCols = [
+    'seedRank', 
+    'spreadStrengthOppStrengthRank', 
+    'wins050', 
+    'confChamp', 
+    'confGroups'
+    ]
+
 statCols = []
 
 modelMatchups = createMatchups(dataDict['tGamesCsingleTeam'][baseCols + ['win']],
@@ -2371,11 +2381,433 @@ modelMatchups = createMatchups(dataDict['tGamesCsingleTeam'][baseCols + ['win']]
 
 
 
-modelMatchups.loc[:, 'confMatchup'] = pd.Series(map(lambda m: tuple(m), 
-                                                 modelMatchups[['teamconfGroups', 'teamconfChamp', 'oppconfGroups', 'oppconfChamp']].values.tolist()))
+modelMatchups.loc[:, 'confMatchup'] = pd.Series(
+    map(lambda m: tuple(m), 
+        modelMatchups[['teamconfGroups', 'teamconfChamp', 
+                       'oppconfGroups', 'oppconfChamp']
+                      ].values.tolist()
+        )
+    )
 
-modelMatchups.loc[:, 'seedMatchup'] = pd.Series(map(lambda m: tuple(m), 
-                                                 modelMatchups[['teamseedRank', 'oppseedRank']].values.tolist()))
+modelMatchups.loc[:, 'seedMatchup'] = pd.Series(
+    map(lambda m: tuple(m), 
+        modelMatchups[['teamseedRank', 'oppseedRank']
+                      ].values.tolist()
+        )
+    )
+
+
+
+#%% FEATURE IMPORTANCE & SELECTION
+## ############################################################################
+
+    
+# #############################################################################
+# ############### FEATURE IMPORTANCE AND FEATURE SELECTION ####################
+# #############################################################################
+
+# Build a forest and compute the feature importances
+forest = ExtraTreesClassifier(n_estimators=250,
+                              random_state=1127)
+
+model = LogisticRegression(random_state = 1127)
+
+poly = PolynomialFeatures(degree = 1, interaction_only = True)
+
+testTrainSplit = 0.2
+
+modelResults, featureRankAll = list(), list()
+
+
+for df in ('tGamesC', 
+           #'tGamesD'
+           ):
+
+    modelResults, featureRankAll = list(), list()
+    
+
+    
+    modelCols = list(
+        filter(lambda c: ((modelMatchups[c].dtype.hasobject == False)
+                          & (c not in baseCols + ['win'])),
+               modelMatchups.columns.tolist()
+               )
+        )
+    
+    
+
+    
+    # Model Data & initial poly fit
+    data = modelMatchups[modelMatchups['Season'] >= 1985]
+    poly.fit(data.loc[:, modelCols])
+    
+    
+    featureCols = list(poly.get_feature_names(modelCols))
+    
+    dataPoly = pd.DataFrame(poly.transform(data.loc[:, modelCols]), columns = featureCols)
+    
+    data = pd.concat([dataPoly, data['win']], axis = 1)
+    modelData = dataPoly.merge(pd.DataFrame(data['win']), left_index = True, right_index = True)
+
+    # Split data for analysis
+    xTrain, xTest, yTrain, yTest = train_test_split(data[featureCols], 
+                                                    data['win'],
+                                                    test_size = testTrainSplit,
+                                                    random_state = 1127)
+
+
+    # Iterate through features and systematically remove features with lowest importance
+    # Recalculate feature importantce and model score after each iterations
+    #for nFeatures in range(len(featureCols), 1, -5):
+    while len(featureCols) > 0:
+        
+
+        # update independent data with selected columns
+        xTrain, xTest = xTrain[featureCols], xTest[featureCols]
+        
+        
+        # Fit forest Model for feature importance and selection
+        forest.fit(xTrain, yTrain)
+        
+        # Fit logistic model for predictions
+        model.fit(xTrain, yTrain)
+        
+        
+        # Calculate Model Accuracy and auc    
+        modelResults.append(
+                        (len(featureCols), 
+                             roc_auc_score(yTest, model.predict_proba(xTest)[:,1]), 
+                             accuracy_score(yTest, model.predict(xTest)),
+                             roc_auc_score(yTest, forest.predict_proba(xTest)[:,1]), 
+                             accuracy_score(yTest, forest.predict(xTest))
+                             )
+                        )
+        
+      
+        # Get Feature Importances
+        featureRank = list(
+            zip(forest.feature_importances_, 
+                featureCols, 
+                repeat(len(featureCols), len(featureCols))
+                )
+            )
+        
+        # Sort features by importance
+        featureRank.sort(reverse = True)
+
+
+        featureRankAll.append(featureRank)
+
+        # Remove lowest feature rankings
+        featureCols = list(list(zip(*featureRank))[1])[:-2]
+
+
+
+    # Aggregate all feature importance iterations
+    featureRankAllDF = pd.DataFrame(
+        list(chain(*featureRankAll)), 
+        columns = ['importance', 'metric', 'numFeatures']
+        )
+    
+    # Add model scores
+    featureRankAllDF = featureRankAllDF.merge(
+        pd.DataFrame(modelResults, 
+                     columns = ['numFeatures', 
+                                'aucLog', 'accLog', 
+                                'aucForest', 'accForest']),
+        left_on = 'numFeatures', 
+        right_on = 'numFeatures'
+        )
+
+    # Add # of features for each iteration
+    featureRankCount = (
+        featureRankAllDF.groupby('metric')['numFeatures'].count()
+        )
+
+
+    
+    featureRankAllPiv = pd.pivot_table(featureRankAllDF, columns = 'metric', index = 'numFeatures', values = 'importance')
+    featureRankAllPiv = featureRankAllPiv.merge(pd.DataFrame(modelResults, 
+                                                           columns = ['numFeatures', 
+                                                                      'aucLog', 'accLog', 
+                                                                      'aucForest', 'accForest']),
+                                                left_index = True, right_on = 'numFeatures')
+    featureRankAllPiv.set_index('numFeatures', inplace = True)
+    
+    featureRankAllPivT = featureRankAllPiv.transpose()
+
+
+    featureRankAllPivT = featureRankAllPivT.merge(pd.DataFrame(featureRankCount), left_index = True, right_index = True, how = 'left')
+
+
+    featureRankCorr = featureRankAllPiv.corr(min_periods = 5)
+    featureRankCorr = featureRankCorr.loc[:, ['accLog', 'aucLog', 'accForest', 'aucForest']]    
+    
+   
+
+    
+    fig, ax = plt.subplots(1)
+    
+    #sns.barplot(zip(*featureRank)[0]/max(zip(*featureRank)[0]), zip(*featureRank)[1], ax = ax)
+
+
+    #sns.lmplot(x = zip(*modelResults)[0], y = zip(*modelResults)[1])
+    plt.title(df)
+    plt.plot(list(zip(*modelResults))[0], list(zip(*modelResults))[1], label = 'logistic')
+    plt.plot(list(zip(*modelResults))[0], list(zip(*modelResults))[3], label = 'forest')
+    plt.grid()
+    plt.legend()
+
+
+#%% BINNING & ENCODING FEATURES
+## ############################################################################
+    
+# =============================================================================
+# BINNING AND ENCODING FEATURES FOR MODELING
+# =============================================================================
+    
+
+# One Hot Encode Matchups
+
+# Get bins
+modelMatchups.loc[:, 'confMatchupBin'] = list(
+    map(lambda m: oheDict['confs'].get(m, 50), 
+        modelMatchups.loc[:, 'confMatchup']
+        )
+    )
+
+modelMatchups.loc[:, 'seedMatchupBin'] = list(
+    map(lambda m: oheDict['seedRanks'].get(m, 50), 
+        modelMatchups.loc[:, 'seedMatchup']
+        )
+    )
+
+# Get dummies (One Hot Encode) for Matchup Bins
+modelMatchups = pd.get_dummies(data = modelMatchups, 
+                               columns = ['confMatchupBin', 'seedMatchupBin'])
+
+
+# Create bins out of spreadStrengthOppStrengthRankDelta and wins050Delta
+# kBins = KBinsDiscretizer(n_bins=10, encode='onehot-dense', strategy='quantile')
+
+
+# # Merge spreadStrength OHE bins to rest of model dataset
+# modelMatchups = pd.concat(
+#     [modelMatchups,
+#      pd.DataFrame(kBins.fit_transform(
+#          modelMatchups[['spreadStrengthOppStrengthRankDelta', 'wins050Delta']]),
+#          columns = chain(*map(lambda b: 
+#                               map(lambda bb: '{}_{}'.format(b[0], bb), 
+#                                   range(b[1])
+#                                   ), 
+#                               zip(['spreadBin', 'win050Bin'], kBins.n_bins_)
+#                               )
+#                          )
+#         )
+#     ],
+#     axis = 1
+#     )
+
+    
+# Filter only bin columns for modeling
+modelCols = list(
+    filter(lambda col: col.find('Bin_') >= 0, 
+           modelMatchups.columns
+           )
+    )
+
+
+
+
+#%% MODEL DEVELOPMENT & GRID SEARCH
+## ############################################################################
+
+
+#==============================================================================
+# MODEL DEVELOPMENT & GRID SEARCH
+#==============================================================================
+
+modelDict = {}
+
+for df in ('tGamesC', 
+#           'tGamesD'
+           ):
+    
+    modelDict[df] = {}
+    
+    # Modeling columns for new pipeline
+#    indCols2 = filter(lambda c: (dataDict[df + 'modelData'][c].dtype.hasobject == False)
+#                                & ((c.find('Delta') >= 0) & ((c.find('Rank') >= 0) | (c.find('wins50') >= 0)))
+#                              #  | (c == 'win')
+#                       , dataDict[df + 'modelData'].columns.tolist())
+    
+    
+    # Model List
+#    mdlList = [ ExtraTreesClassifier(n_estimators = 50, random_state = 1127), 
+#                RandomForestClassifier(n_estimators = 50, random_state = 1127),
+#                LogisticRegression(random_state = 1127),
+#                KNeighborsClassifier(),
+#                SVC(random_state = 1127, probability = True)]
+    
+    # Configure parameter grid for pipeline
+    numIndCols = len(modelCols)
+    numPCASplits = 4
+    
+    
+  
+    #fReduce = FeatureUnion([('pca', PCA()), ('kBest', SelectKBest(k = 1))])
+    #fReduce = FeatureUnion([('pca', PCA()), 
+                           # ('kBest', SelectKBest(k = 1))
+                           # ('rfe', RFE(LogisticRegression(random_state = 1127)))
+    #                        ])
+   
+    #fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
+    #fReduce = SelectPercentile(percentile = 0.5)
+    fReduce = SelectKBest(k = 1)
+ 
+    
+    # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
+    pipe = Pipeline([#('sScale', StandardScaler()), 
+                     #('sScale', QuantileTransformer()),
+#                     ('scale', MinMaxScaler()),
+#                     ('pca',  PCA(n_components = numIndCols // 2)),
+#                     ('poly', PolynomialFeatures(degree = 2, interaction_only = True)),
+                     #('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
+#                     ('fReduce', fReduce),
+                     # ('fReduce', PCA(n_components = 10)),
+                     ('mdl', LogisticRegression(random_state = 1127))])
+    
+    
+    paramGrid = [
+#                {'mdl' : [ExtraTreesClassifier(n_estimators = 50,
+#                                               n_jobs = -1,
+#                                               random_state = 1127), 
+#                          RandomForestClassifier(random_state = 1127,
+#                                                 n_estimators = 50,
+#                                                 n_jobs = -1,
+#                                                 verbose = 0),
+#                          GradientBoostingClassifier(n_estimators = 50,
+#                                                     random_state = 1127)
+#                          ],                        
+#                 'mdl__min_samples_split' : np.arange(.005, .1, .01),
+#                 'mdl__min_samples_leaf' : xrange(2, 11, 4),
+##                 'mdl__n_estimators' : [25, 100, 200]
+#                    },
+                    
+                {'mdl' : [LogisticRegression(random_state = 1127)],
+                 'mdl__C' : map(lambda i: 10**i, xrange(-1,4))
+                    },
+                    
+                {'mdl' : [SVC(probability = True)],
+                 'mdl__C' : map(lambda i: 10**i, xrange(-1,4)),
+                 'mdl__gamma' : map(lambda i: 10**i, xrange(-4,1))
+                    },
+                    
+                {'mdl' : [KNeighborsClassifier()],
+                 'mdl__n_neighbors' : range(3, 15, 2)
+                    }
+                ]
+            
+    
+    # Update paramGrid with other grid search parameters that apply to all models
+#    map(lambda d: d.update({'fReduce__n_features_to_select' : range(1, min(1 +  numIndCols, 26), 2)}),
+#        paramGrid)
+#    map(lambda d: d.update({'fReduce__k' : range(1,min(20, 1 + numIndCols // 2))}), paramGrid)
+#    map(lambda d: d.update({'fReduce__percentile' : np.arange(0.01, 0.21, 0.04)}),  paramGrid)
+#    map(lambda d: d.update({'pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits)}), paramGrid)    
+    
+    
+    
+
+    
+    
+    
+    
+    # Run grid search on modeling pipeline
+    timer()
+    modelDict[df]['analysis'] = modelAnalysisPipeline(modelPipe = pipe,
+                          data = modelMatchups,
+                          indCols = modelCols,
+                          targetCol = 'win',
+                          testTrainSplit = 0.2,
+                          gridSearch=True,
+                          paramGrid=paramGrid,
+                          scoring = 'roc_auc')
+    modelDict[df]['calcTime'] = timer()
+    
+    
+    
+    
+    
+    
+    # Plot Results
+    gridSearchResults = pd.DataFrame(modelDict[df]['analysis']['pipe'].cv_results_)
+    gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], 
+                                    gridSearchResults['param_mdl'].values.tolist())
+    
+    
+    gsPlotCols = filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
+                       gridSearchResults.columns.tolist())
+    
+    # Get summary for each model type and best model for each model type
+    mdlBests = []
+    for label, metric in [('mean', np.mean), ('median', np.median), ('max',np.max)]:
+        
+        t = gridSearchResults.groupby('mdl').agg({'mean_test_score':metric})
+        t.rename(columns = {'mean_test_score':label}, inplace = True)
+        mdlBests.append(t)
+        
+    del(t)    
+        
+    mdlBests = pd.concat(mdlBests, axis = 1)
+    
+    mdlBests = (mdlBests.set_index('max', append = True)
+                        .merge(gridSearchResults[['mdl', 'mean_test_score', 'param_mdl', 'params']], 
+                               left_index = True, 
+                               right_on = ['mdl', 'mean_test_score'], 
+                               how = 'inner')
+                               )
+    mdlBests.rename(columns = {'mean_test_score':'max'}, inplace = True)
+
+    # Make sure there's only a single value for each model type
+    mdlBests = mdlBests.groupby('mdl').first()    
+    
+    modelDict[df]['bests'] = mdlBests
+    modelDict[df]['gridResults'] = gridSearchResults
+    
+    #type(mdlBests['param_mdl'].iloc[0])
+    
+    # Plot Results
+    fig, ax = plt.subplots(len(gsPlotCols))
+    plt.suptitle('Grid Search Results by Model Type {}'.format(df), fontsize = 24)
+    
+    swPlot = True
+    
+    for i, col in enumerate(gsPlotCols):
+        sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
+        if swPlot == True:    
+            sns.swarmplot(x = 'mdl', y = col, 
+                          data = gridSearchResults, 
+                          ax = ax[i], 
+                          color = 'grey', 
+                          size = 6)
+    
+        #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
+        ax[i].set_ylabel(col, fontsize = 12)
+    
+        ax[i].grid()      
+           
+        if i == len(gsPlotCols) - 1:
+            ax[i].set_xlabel('Model Type', fontsize = 12)
+            ax[i].tick_params(labelsize = 12)
+        else:
+            ax[i].tick_params(axis = 'y', labelsize = 12)
+            ax[i].tick_params(axis = 'x', which = 'both', 
+                              top = 'off', bottom = 'off', 
+                              labelbottom = 'off')
+    
+del(mdlBests, gridSearchResults, gsPlotCols, numIndCols, numPCASplits)
+
 
 
 
