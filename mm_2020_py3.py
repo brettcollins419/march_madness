@@ -2972,7 +2972,7 @@ tourneyMatchups = createMatchups(tourneyMatchups,
 # Create Matchups for conference + conf champ groups
 tourneyMatchups.loc[:, 'confMatchup'] = pd.Series(
     map(lambda m: tuple(m), 
-        modelMatchups[['teamconfGroups', 'teamconfChamp', 
+        tourneyMatchups[['teamconfGroups', 'teamconfChamp', 
                        'oppconfGroups', 'oppconfChamp']
                       ].values.tolist()
         )
@@ -2981,22 +2981,22 @@ tourneyMatchups.loc[:, 'confMatchup'] = pd.Series(
 # Create Matchups for seed ranks
 tourneyMatchups.loc[:, 'seedMatchup'] = pd.Series(
     map(lambda m: tuple(m), 
-        modelMatchups[['teamseedRank', 'oppseedRank']
+        tourneyMatchups[['teamseedRank', 'oppseedRank']
                       ].values.tolist()
         )
     )
 
 
 # Convert matchups into win % bins
-modelMatchups.loc[:, 'confMatchupBin'] = list(
+tourneyMatchups.loc[:, 'confMatchupBin'] = list(
     map(lambda m: oheDict['confs'].get(m, 50), 
         modelMatchups.loc[:, 'confMatchup']
         )
     )
 
-modelMatchups.loc[:, 'seedMatchupBin'] = list(
+tourneyMatchups.loc[:, 'seedMatchupBin'] = list(
     map(lambda m: oheDict['seedRanks'].get(m, 50), 
-        modelMatchups.loc[:, 'seedMatchup']
+        tourneyMatchups.loc[:, 'seedMatchup']
         )
     )
 
