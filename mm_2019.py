@@ -2776,11 +2776,13 @@ for df in modelDict.iterkeys():
     # Refit pipleiine with model parameters and calculate prediciton probabilities
 
     # ROC Curves
-    rocCurves = map(lambda params: roc_curve(modelDict[df]['analysis']['yTest'],
-                                          (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+    rocCurves = list(
+        map(lambda params: roc_curve(modelDict[df]['analysis']['yTest'],
+                                    (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
                                               .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
                                               .predict_proba(modelDict[df]['analysis']['xTest'])[:,1])),
                     modelDict[df]['bests']['params'].values.tolist())
+        )
 
 
     # Append best model
@@ -2788,11 +2790,13 @@ for df in modelDict.iterkeys():
                                modelDict[df]['analysis']['pipe'].predict_proba(modelDict[df]['analysis']['xTest'])[:,1]))
 
     # AUC
-    rocAucs = map(lambda params: roc_auc_score(modelDict[df]['analysis']['yTest'],
+    rocAucs = list(
+        map(lambda params: roc_auc_score(modelDict[df]['analysis']['yTest'],
                                           (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
                                               .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
                                               .predict_proba(modelDict[df]['analysis']['xTest'])[:,1])),
                     modelDict[df]['bests']['params'].values.tolist())
+        )
 
 
     # Append best model
@@ -2800,21 +2804,25 @@ for df in modelDict.iterkeys():
                                    modelDict[df]['analysis']['pipe'].predict_proba(modelDict[df]['analysis']['xTest'])[:,1]))
 
     # Log Loss
-    logloss = map(lambda params: log_loss(modelDict[df]['analysis']['yTest'],
+    logloss = list(
+        map(lambda params: log_loss(modelDict[df]['analysis']['yTest'],
                                           (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
                                               .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
                                               .predict_proba(modelDict[df]['analysis']['xTest']))),
                     modelDict[df]['bests']['params'].values.tolist())
+        )
 
     # Confusion Matrix
-    confuseMatrix = map(lambda params: confusion_matrix(modelDict[df]['analysis']['yTest'],
+    confuseMatrix = list(
+        map(lambda params: confusion_matrix(modelDict[df]['analysis']['yTest'],
                                           (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
                                               .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
                                               .predict(modelDict[df]['analysis']['xTest']))),
                     modelDict[df]['bests']['params'].values.tolist())
+        )
 
     # Accuracy
-    accuracy = map(lambda c: np.trace(c) / np.sum(c), confuseMatrix)
+    accuracy = list(map(lambda c: np.trace(c) / np.sum(c), confuseMatrix))
 
 
     # Plot ROC Curves
@@ -2841,7 +2849,6 @@ for df in modelDict.iterkeys():
     ax.tick_params(labelsize = 24)
 
 
-help(combinations)
 
 
 

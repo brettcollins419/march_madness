@@ -2689,6 +2689,7 @@ modelDict[df]['analysis'] = modelAnalysisPipeline(modelPipe = pipe,
                       paramGrid=paramGrid,
                       scoring = 'roc_auc',
                       crossFolds = 5)
+
 modelDict[df]['calcTime'] = timer()
 
 
@@ -2768,198 +2769,200 @@ for i, col in enumerate(gsPlotCols):
         ax[i].tick_params(axis = 'x', which = 'both', 
                           top = 'off', bottom = 'off', 
                           labelbottom = 'off')
-    
-del(mdlBests, gridSearchResults, gsPlotCols, numIndCols, numPCASplits)
 
-#%%
+try: del(mdlBests, gridSearchResults, gsPlotCols, numPCASplits)
+except: pass
+
+#%% MODEL EVALUATION
+## ############################################################################
+
 #==============================================================================
-# MODEL DEVELOPMENT & GRID SEARCH
+# EVALUATE MODELS ON TEST DATA
+#   ROC CURVES
+#   AUC
+#   LOG LOSS
 #==============================================================================
 
-modelDict = {}
 
-for df in ('tGamesC', 
-#           'tGamesD'
-           ):
+# Plot roc curve for best params for each model type
+for df in modelDict.keys():       
+
+    # Refit pipleiine with model parameters and calculate prediciton probabilities
+
+    # ROC Curves
+    rocCurves = list(
+        map(lambda params: roc_curve(modelDict[df]['analysis']['yTest'],
+                                    (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+                                              .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
+                                              .predict_proba(modelDict[df]['analysis']['xTest'])[:,1])),
+                    modelDict[df]['bests']['params'].values.tolist())
+        )
+
+
+    # Append best model
+    rocCurves.append(roc_curve(modelDict[df]['analysis']['yTest'],
+                               modelDict[df]['analysis']['pipe'].predict_proba(modelDict[df]['analysis']['xTest'])[:,1]))
+
+    # AUC
+    rocAucs = list(
+        map(lambda params: roc_auc_score(modelDict[df]['analysis']['yTest'],
+                                          (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+                                              .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
+                                              .predict_proba(modelDict[df]['analysis']['xTest'])[:,1])),
+                    modelDict[df]['bests']['params'].values.tolist())
+        )
+
+
+    # Append best model
+    rocAucs.append(roc_auc_score(modelDict[df]['analysis']['yTest'],
+                                   modelDict[df]['analysis']['pipe'].predict_proba(modelDict[df]['analysis']['xTest'])[:,1]))
+
+    # Log Loss
+    logloss = list(
+        map(lambda params: log_loss(modelDict[df]['analysis']['yTest'],
+                                          (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+                                              .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
+                                              .predict_proba(modelDict[df]['analysis']['xTest']))),
+                    modelDict[df]['bests']['params'].values.tolist())
+        )
+
+    # Confusion Matrix
+    confuseMatrix = list(
+        map(lambda params: confusion_matrix(modelDict[df]['analysis']['yTest'],
+                                          (modelDict[df]['analysis']['pipe'].estimator.set_params(**params)
+                                              .fit(modelDict[df]['analysis']['xTrain'], modelDict[df]['analysis']['yTrain'])
+                                              .predict(modelDict[df]['analysis']['xTest']))),
+                    modelDict[df]['bests']['params'].values.tolist())
+        )
+
+    # Accuracy
+    accuracy = list(map(lambda c: np.trace(c) / np.sum(c), confuseMatrix))
+
+
+    # Plot ROC Curves
+    cMap = cm.get_cmap('jet')
+
+    fig, ax = plt.subplots(1)
     
-    modelDict[df] = {}
+    for i, curve in enumerate(zip(rocCurves, 
+                                  modelDict[df]['bests'].index.values.tolist() + ['best Model'],
+                                    rocAucs)):
+        ax.plot(curve[0][0], 
+                curve[0][1], 
+                c = cMap(256*i//(len(rocCurves) - 1))[:3], 
+                linewidth = 8,
+                label = '{} {:0.2f}'.format(curve[1], curve[2]))
+      
+    ax.plot([0,1],[0,1], '--k', linewidth = 4, label = 'random')      
+      
+    plt.grid()
+    plt.legend()
+    ax.set_xlabel('fpr', fontsize = 24)
+    ax.set_ylabel('tpr', fontsize = 24)
+    ax.set_title('ROC Curve for ' + df, fontsize = 36)
+    ax.tick_params(labelsize = 24)
+
+
+#%% TOURNAMENT PREDICTIONS
+## ############################################################################
     
-    # Modeling columns for new pipeline
-#    indCols2 = filter(lambda c: (dataDict[df + 'modelData'][c].dtype.hasobject == False)
-#                                & ((c.find('Delta') >= 0) & ((c.find('Rank') >= 0) | (c.find('wins50') >= 0)))
-#                              #  | (c == 'win')
-#                       , dataDict[df + 'modelData'].columns.tolist())
     
-    
-    # Model List
-#    mdlList = [ ExtraTreesClassifier(n_estimators = 50, random_state = 1127), 
-#                RandomForestClassifier(n_estimators = 50, random_state = 1127),
-#                LogisticRegression(random_state = 1127),
-#                KNeighborsClassifier(),
-#                SVC(random_state = 1127, probability = True)]
-    
-    # Configure parameter grid for pipeline
-    numIndCols = len(modelCols)
-    numPCASplits = 4
-    
-    
-  
-    #fReduce = FeatureUnion([('pca', PCA()), ('kBest', SelectKBest(k = 1))])
-    #fReduce = FeatureUnion([('pca', PCA()), 
-                           # ('kBest', SelectKBest(k = 1))
-                           # ('rfe', RFE(LogisticRegression(random_state = 1127)))
-    #                        ])
+# Year for predictions
+yr = 2019
+
+for df in modelDict.keys():
    
-    #fReduce = RFE(SVC(kernel="linear", random_state = 1127), n_features_to_select = 5)
-    #fReduce = SelectPercentile(percentile = 0.5)
-    fReduce = SelectKBest(k = 1)
- 
+    allModelResults = pd.DataFrame()
     
-    # Create pipeline of Standard Scaler, PCA reduction, and Model (default Logistic)
-    pipe = Pipeline([#('sScale', StandardScaler()), 
-                     #('sScale', QuantileTransformer()),
-#                     ('scale', MinMaxScaler()),
-#                     ('pca',  PCA(n_components = numIndCols // 2)),
-#                     ('poly', PolynomialFeatures(degree = 2, interaction_only = True)),
-                     #('kbd', KBinsDiscretizer(n_bins = 4, encode = 'ordinal')),
-#                     ('fReduce', fReduce),
-                     # ('fReduce', PCA(n_components = 10)),
-                     ('mdl', LogisticRegression(random_state = 1127))])
+    # Get model 
+    modelBestsDict = modelDict[df]['bests'].to_dict(orient='index')
+     
+    # Regular Season team stast Dataframe for building modeling dataset
+    teamDFname = 'rGames{}TeamSeasonStats'.format(df[-1])
+    
+    # Modeling columns: All numeric columns (same code as used in Grid Search)
+    indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
+                                & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
+                    dataDict[df + 'modelData'].columns.tolist())
     
     
-    paramGrid = [
-#                {'mdl' : [ExtraTreesClassifier(n_estimators = 50,
-#                                               n_jobs = -1,
-#                                               random_state = 1127), 
-#                          RandomForestClassifier(random_state = 1127,
-#                                                 n_estimators = 50,
-#                                                 n_jobs = -1,
-#                                                 verbose = 0),
-#                          GradientBoostingClassifier(n_estimators = 50,
-#                                                     random_state = 1127)
-#                          ],                        
-#                 'mdl__min_samples_split' : np.arange(.005, .1, .01),
-#                 'mdl__min_samples_leaf' : xrange(2, 11, 4),
-##                 'mdl__n_estimators' : [25, 100, 200]
-#                    },
-                    
-                {'mdl' : [LogisticRegression(random_state = 1127)],
-                 'mdl__C' : map(lambda i: 10**i, range(-1,4))
-                    },
-                    
-                {'mdl' : [SVC(probability = True)],
-                 'mdl__C' : map(lambda i: 10**i, range(-1,4)),
-                 'mdl__gamma' : map(lambda i: 10**i, range(-4,1))
-                    },
-                    
-                {'mdl' : [KNeighborsClassifier()],
-                 'mdl__n_neighbors' : range(3, 15, 2)
-                    }
-                ]
-            
-    
-    # Update paramGrid with other grid search parameters that apply to all models
-#    map(lambda d: d.update({'fReduce__n_features_to_select' : range(1, min(1 +  numIndCols, 26), 2)}),
-#        paramGrid)
-#    map(lambda d: d.update({'fReduce__k' : range(1,min(20, 1 + numIndCols // 2))}), paramGrid)
-#    map(lambda d: d.update({'fReduce__percentile' : np.arange(0.01, 0.21, 0.04)}),  paramGrid)
-#    map(lambda d: d.update({'pca__n_components' : range(3, numIndCols, numIndCols // numPCASplits)}), paramGrid)    
-    
-    
-    
-
-    
-    
-    
-    
-    # Run grid search on modeling pipeline
-    timer()
-    modelDict[df]['analysis'] = modelAnalysisPipeline(modelPipe = pipe,
-                          data = modelMatchups,
-                          indCols = modelCols,
-                          targetCol = 'win',
-                          testTrainSplit = 0.2,
-                          gridSearch=True,
-                          paramGrid=paramGrid,
-                          scoring = 'roc_auc',
-                          crossFolds = 10)
-    modelDict[df]['calcTime'] = timer()
-    
-    
-    
-    
-    
-    
-    # Plot Results
-    gridSearchResults = pd.DataFrame(modelDict[df]['analysis']['pipe'].cv_results_)
-    gridSearchResults['mdl'] = map(lambda m: str(m).split('(')[0], 
-                                    gridSearchResults['param_mdl'].values.tolist())
-    
-    
-    gsPlotCols = filter(lambda c: len(re.findall('^mean.*|^rank.*', c)) > 0,
-                       gridSearchResults.columns.tolist())
-    
-    # Get summary for each model type and best model for each model type
-    mdlBests = []
-    for label, metric in [('mean', np.mean), ('median', np.median), ('max',np.max)]:
+    for mdl, mdlDict in modelBestsDict.items():   
         
-        t = gridSearchResults.groupby('mdl').agg({'mean_test_score':metric})
-        t.rename(columns = {'mean_test_score':label}, inplace = True)
-        mdlBests.append(t)
+        # Get pipeLine & set parameters
+        pipe = modelDict[df]['analysis']['pipe'].estimator
+        pipe.set_params(**mdlDict['params'])
         
-    del(t)    
         
-    mdlBests = pd.concat(mdlBests, axis = 1)
+        # Fit the pipeline
+        pipe.fit(modelDict[df]['analysis']['xTrain'], 
+                 modelDict[df]['analysis']['yTrain'])
     
-    mdlBests = (mdlBests.set_index('max', append = True)
-                        .merge(gridSearchResults[['mdl', 'mean_test_score', 'param_mdl', 'params']], 
-                               left_index = True, 
-                               right_on = ['mdl', 'mean_test_score'], 
-                               how = 'inner')
-                               )
-    mdlBests.rename(columns = {'mean_test_score':'max'}, inplace = True)
+        
+        modelBestsDict[mdl]['bestPredictions'], modelBestsDict[mdl]['bestPredictionsClean'], modelBestsDict[mdl]['matchups'] = tourneyPredictions2(model = pipe, 
+                              teamDF = dataDict[teamDFname],
+                              tSeeds = dataDict['tSeeds'],
+                              tSlots = dataDict['tSlots'],
+                              seedDF = dataDict[df + 'SeedStats'],
+                              mdlCols = indCols2,
+                              yr = yr,
+                              returnStatCols = True)
+        
+        # Add columns for dataframe and model name
+        modelBestsDict[mdl]['bestPredictionsClean'].loc[:, 'df'] = df
+        modelBestsDict[mdl]['bestPredictionsClean'].loc[:, 'model'] = mdl
+        
+        # Aggregate results
+        allModelResults = pd.concat([allModelResults, 
+                                     modelBestsDict[mdl]['bestPredictionsClean']],
+                                    axis = 0)
+        
+        
+        
+        fName = '_'.join([str(yr),
+                          'model_results',
+                          df,
+                          mdl, 
+                          datetime.strftime(datetime.now(), '%Y_%m_%d')])
+    
+        modelBestsDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
+   
 
-    # Make sure there's only a single value for each model type
-    mdlBests = mdlBests.groupby('mdl').first()    
-    
-    modelDict[df]['bests'] = mdlBests
-    modelDict[df]['gridResults'] = gridSearchResults
-    
-    #type(mdlBests['param_mdl'].iloc[0])
-    
-    # Plot Results
-    fig, ax = plt.subplots(len(gsPlotCols))
-    plt.suptitle('Grid Search Results by Model Type {}'.format(df), fontsize = 24)
-    
-    swPlot = True
-    
-    for i, col in enumerate(gsPlotCols):
-        sns.violinplot(x = 'mdl', y = col, data = gridSearchResults, ax = ax[i])    
-        if swPlot == True:    
-            sns.swarmplot(x = 'mdl', y = col, 
-                          data = gridSearchResults, 
-                          ax = ax[i], 
-                          color = 'grey', 
-                          size = 6)
-    
-        #ax.set_yticklabels(map(lambda v: '{:.0%}'.format(v), axs[1].get_yticks()))
-        ax[i].set_ylabel(col, fontsize = 12)
-    
-        ax[i].grid()      
-           
-        if i == len(gsPlotCols) - 1:
-            ax[i].set_xlabel('Model Type', fontsize = 12)
-            ax[i].tick_params(labelsize = 12)
-        else:
-            ax[i].tick_params(axis = 'y', labelsize = 12)
-            ax[i].tick_params(axis = 'x', which = 'both', 
-                              top = 'off', bottom = 'off', 
-                              labelbottom = 'off')
-    
-del(mdlBests, gridSearchResults, gsPlotCols, numIndCols, numPCASplits)
+    allModelResults.to_csv('{}_all_model_results_{}_{}_2.csv'.format(yr, df, 
+                           datetime.strftime(datetime.now(), '%Y_%m_%d')), index = False) 
+
+# ============================================================================
+# ================= END TOURNAMENT PRECITIONS ================================
+# ============================================================================
 
 
+#%% TOURNAMENT PRECITIONS ALL POSSIBILITIES
+## ############################################################################
 
+season = 2019
+x = dataDict['rGamesCTeamSeasonStats'][(dataDict['rGamesCTeamSeasonStats'].index.get_level_values('Season') == season) & (dataDict['rGamesCTeamSeasonStats']['seedRank'] <= 16)].index.get_level_values('TeamID').tolist()
+
+tourneyMatchups = pd.DataFrame(combinations(x, 2), columns = ['TeamID', 'opponentID'])
+tourneyMatchups.loc[:, 'Season'] = season
+
+tourneyMatchups = createMatchups(matchupDF = tourneyMatchups, 
+                                                statsDF = dataDict['rGamesCTeamSeasonStats'],
+                                                returnStatCols = False,
+                                                calculateDelta = True,
+                                                calculateMatchup = True,
+                                                extraMatchupCols = ['seedRank'])
+
+
+tourneyMatchups.loc[:, 'teamWinProb'] = modelDict[df]['analysis']['pipe'].predict_proba(tourneyMatchups.loc[:, indCols2])[:,1]
+
+
+tourneyMatchups = tourneyMatchups.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
+                                                            left_on = 'TeamID', right_index = True)
+tourneyMatchups = tourneyMatchups.merge(pd.DataFrame(dataDict['teams'].rename(columns = {'TeamID':'opponentID', 'TeamName': 'opponentName'})
+                                                                                             .set_index('opponentID')['opponentName']),
+                                                                left_on = 'opponentID', right_index = True)
+
+tourneyMatchups.to_csv('{}_{}_best_model_results_all_matchups_{}.csv'.format(season, df, 
+                           datetime.strftime(datetime.now(), '%Y_%m_%d')), index = False) 
 
 
 #%% DEV
