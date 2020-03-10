@@ -2386,7 +2386,7 @@ modelMatchups = createMatchups(dataDict['tGamesCsingleTeam'][baseCols + ['win']]
                                reindex = True)
 
 
-
+# Create Matchups for conference + conf champ groups
 modelMatchups.loc[:, 'confMatchup'] = pd.Series(
     map(lambda m: tuple(m), 
         modelMatchups[['teamconfGroups', 'teamconfChamp', 
@@ -2395,6 +2395,7 @@ modelMatchups.loc[:, 'confMatchup'] = pd.Series(
         )
     )
 
+# Create Matchups for seed ranks
 modelMatchups.loc[:, 'seedMatchup'] = pd.Series(
     map(lambda m: tuple(m), 
         modelMatchups[['teamseedRank', 'oppseedRank']
@@ -2402,6 +2403,19 @@ modelMatchups.loc[:, 'seedMatchup'] = pd.Series(
         )
     )
 
+
+# Convert matchups into win % bins
+modelMatchups.loc[:, 'confMatchupBin'] = list(
+    map(lambda m: oheDict['confs'].get(m, 50), 
+        modelMatchups.loc[:, 'confMatchup']
+        )
+    )
+
+modelMatchups.loc[:, 'seedMatchupBin'] = list(
+    map(lambda m: oheDict['seedRanks'].get(m, 50), 
+        modelMatchups.loc[:, 'seedMatchup']
+        )
+    )
 
 
 #%% FEATURE IMPORTANCE & SELECTION
@@ -2570,19 +2584,6 @@ for df in ('tGamesC',
     
 
 # One Hot Encode Matchups
-
-# Get bins
-modelMatchups.loc[:, 'confMatchupBin'] = list(
-    map(lambda m: oheDict['confs'].get(m, 50), 
-        modelMatchups.loc[:, 'confMatchup']
-        )
-    )
-
-modelMatchups.loc[:, 'seedMatchupBin'] = list(
-    map(lambda m: oheDict['seedRanks'].get(m, 50), 
-        modelMatchups.loc[:, 'seedMatchup']
-        )
-    )
 
 # Get dummies (One Hot Encode) for Matchup Bins
 modelMatchups = pd.get_dummies(data = modelMatchups, 
@@ -2770,6 +2771,7 @@ for i, col in enumerate(gsPlotCols):
                           top = 'off', bottom = 'off', 
                           labelbottom = 'off')
 
+
 try: del(mdlBests, gridSearchResults, gsPlotCols, numPCASplits)
 except: pass
 
@@ -2944,12 +2946,60 @@ x = dataDict['rGamesCTeamSeasonStats'][(dataDict['rGamesCTeamSeasonStats'].index
 tourneyMatchups = pd.DataFrame(combinations(x, 2), columns = ['TeamID', 'opponentID'])
 tourneyMatchups.loc[:, 'Season'] = season
 
-tourneyMatchups = createMatchups(matchupDF = tourneyMatchups, 
-                                                statsDF = dataDict['rGamesCTeamSeasonStats'],
-                                                returnStatCols = False,
-                                                calculateDelta = True,
-                                                calculateMatchup = True,
-                                                extraMatchupCols = ['seedRank'])
+# tourneyMatchups = createMatchups(matchupDF = tourneyMatchups, 
+#                                                 statsDF = dataDict['rGamesCTeamSeasonStats'],
+#                                                 returnStatCols = False,
+#                                                 calculateDelta = True,
+#                                                 calculateMatchup = True,
+#                                                 extraMatchupCols = ['seedRank'])
+
+
+tourneyMatchups = createMatchups(tourneyMatchups,
+                               statsDF = dataDict['rGamesCTeamSeasonStats'],
+                               teamID1 = 'TeamID',
+                               teamID2 = 'opponentID',
+                               teamLabel1 = 'team',
+                               teamLabel2 = 'opp',
+                               calculateDelta = False, 
+                               calculateMatchup = False, 
+                               extraMatchupCols = [],
+                               returnTeamID1StatCols = True,
+                               returnTeamID2StatCols = True,
+                               returnBaseCols = True,
+                               reindex = True)
+
+
+# Create Matchups for conference + conf champ groups
+tourneyMatchups.loc[:, 'confMatchup'] = pd.Series(
+    map(lambda m: tuple(m), 
+        modelMatchups[['teamconfGroups', 'teamconfChamp', 
+                       'oppconfGroups', 'oppconfChamp']
+                      ].values.tolist()
+        )
+    )
+
+# Create Matchups for seed ranks
+tourneyMatchups.loc[:, 'seedMatchup'] = pd.Series(
+    map(lambda m: tuple(m), 
+        modelMatchups[['teamseedRank', 'oppseedRank']
+                      ].values.tolist()
+        )
+    )
+
+
+# Convert matchups into win % bins
+modelMatchups.loc[:, 'confMatchupBin'] = list(
+    map(lambda m: oheDict['confs'].get(m, 50), 
+        modelMatchups.loc[:, 'confMatchup']
+        )
+    )
+
+modelMatchups.loc[:, 'seedMatchupBin'] = list(
+    map(lambda m: oheDict['seedRanks'].get(m, 50), 
+        modelMatchups.loc[:, 'seedMatchup']
+        )
+    )
+
 
 
 tourneyMatchups.loc[:, 'teamWinProb'] = modelDict[df]['analysis']['pipe'].predict_proba(tourneyMatchups.loc[:, indCols2])[:,1]
