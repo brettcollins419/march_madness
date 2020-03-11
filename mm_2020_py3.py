@@ -340,6 +340,7 @@ def modelAnalysisPipeline(modelPipe, data = [],
     
     # return modelPipe, predictions, predProbs, auc, accuracy
     return {'pipe' : modelPipe,
+            'independentVars' : indCols,
             'predictions' : predictions,
             'probabilities' : predProbs,
             'xTrain' : xTrain, 'yTrain' : yTrain,
@@ -2586,8 +2587,8 @@ for df in ('tGamesC',
 # One Hot Encode Matchups
 
 # Get dummies (One Hot Encode) for Matchup Bins
-modelMatchups = pd.get_dummies(data = modelMatchups, 
-                               columns = ['confMatchupBin', 'seedMatchupBin'])
+# modelMatchups = pd.get_dummies(data = modelMatchups, 
+#                                columns = ['confMatchupBin', 'seedMatchupBin'])
 
 
 # Create bins out of spreadStrengthOppStrengthRankDelta and wins050Delta
@@ -2990,7 +2991,7 @@ tourneyMatchups.loc[:, 'seedMatchup'] = pd.Series(
 # Convert matchups into win % bins
 tourneyMatchups.loc[:, 'confMatchupBin'] = list(
     map(lambda m: oheDict['confs'].get(m, 50), 
-        modelMatchups.loc[:, 'confMatchup']
+        tourneyMatchups.loc[:, 'confMatchup']
         )
     )
 
@@ -3001,8 +3002,15 @@ tourneyMatchups.loc[:, 'seedMatchupBin'] = list(
     )
 
 
+x = modelDict[df]['analysis']['independentVars']
 
-tourneyMatchups.loc[:, 'teamWinProb'] = modelDict[df]['analysis']['pipe'].predict_proba(tourneyMatchups.loc[:, indCols2])[:,1]
+tourneyMatchups[x].apply(max, axis = 1)
+
+tourneyMatchups.loc[:, 'teamWinProb'] = (
+    modelDict[df]['analysis']['pipe'].predict_proba(
+        tourneyMatchups.loc[:, modelDict[df]['analysis']['independentVars']]
+        )[:,1]
+    )
 
 
 tourneyMatchups = tourneyMatchups.merge(pd.DataFrame(dataDict['teams'].set_index('TeamID')['TeamName']),
