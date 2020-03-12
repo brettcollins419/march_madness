@@ -3074,76 +3074,7 @@ def tournamentPredictions(allPredictions, tSlots, tSeeds):
 
     return bracketPredictions
 
-#%%
 
-
-
-# Year for predictions
-yr = 2019
-
-for df in modelDict.keys():
-   
-    allModelResults = pd.DataFrame()
-    
-    # Get model 
-    modelBestsDict = modelDict[df]['bests'].to_dict(orient='index')
-     
-    # Regular Season team stast Dataframe for building modeling dataset
-    teamDFname = 'rGames{}TeamSeasonStats'.format(df[-1])
-    
-    # Modeling columns: All numeric columns (same code as used in Grid Search)
-    indCols2 = filter(lambda c: (c not in colsBase + ['ATeamID', 'BTeamID', 'winnerA'])
-                                & (dataDict[df + 'modelData'][c].dtype.hasobject == False), 
-                    dataDict[df + 'modelData'].columns.tolist())
-    
-    
-    for mdl, mdlDict in modelBestsDict.items():   
-        
-        # Get pipeLine & set parameters
-        pipe = modelDict[df]['analysis']['pipe'].estimator
-        pipe.set_params(**mdlDict['params'])
-        
-        
-        # Fit the pipeline
-        pipe.fit(modelDict[df]['analysis']['xTrain'], 
-                 modelDict[df]['analysis']['yTrain'])
-    
-        
-        modelBestsDict[mdl]['bestPredictions'], modelBestsDict[mdl]['bestPredictionsClean'], modelBestsDict[mdl]['matchups'] = tourneyPredictions2(model = pipe, 
-                              teamDF = dataDict[teamDFname],
-                              tSeeds = dataDict['tSeeds'],
-                              tSlots = dataDict['tSlots'],
-                              seedDF = dataDict[df + 'SeedStats'],
-                              mdlCols = indCols2,
-                              yr = yr,
-                              returnStatCols = True)
-        
-        # Add columns for dataframe and model name
-        modelBestsDict[mdl]['bestPredictionsClean'].loc[:, 'df'] = df
-        modelBestsDict[mdl]['bestPredictionsClean'].loc[:, 'model'] = mdl
-        
-        # Aggregate results
-        allModelResults = pd.concat([allModelResults, 
-                                     modelBestsDict[mdl]['bestPredictionsClean']],
-                                    axis = 0)
-        
-        
-        
-        fName = '_'.join([str(yr),
-                          'model_results',
-                          df,
-                          mdl, 
-                          datetime.strftime(datetime.now(), '%Y_%m_%d')])
-    
-        modelBestsDict[mdl]['bestPredictionsClean'].to_csv(fName + '.csv', index = False, header = True)    
-   
-
-    allModelResults.to_csv('{}_all_model_results_{}_{}_2.csv'.format(yr, df, 
-                           datetime.strftime(datetime.now(), '%Y_%m_%d')), index = False) 
-
-# ============================================================================
-# ================= END TOURNAMENT PRECITIONS ================================
-# ============================================================================
 
 #%% DEV
 ## ############################################################################
