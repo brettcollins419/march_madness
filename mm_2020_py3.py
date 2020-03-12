@@ -2871,14 +2871,16 @@ for df in modelDict.keys():
 ## ############################################################################
 
 season = 2019
+statsDF = dataDict['rGamesCTeamSeasonStats']
 
 
 tourneyTeams = (
-    dataDict['rGamesCTeamSeasonStats'][
-        (dataDict['rGamesCTeamSeasonStats'].index.get_level_values('Season') == season) 
-        & (dataDict['rGamesCTeamSeasonStats']['seedRank'] <= 16)
+    statsDF[
+        (statsDF.index.get_level_values('Season') == season) 
+        & (statsDF['seedRank'] <= 16)
         ].index.get_level_values('TeamID').tolist()
     )
+
 
 
 tourneyMatchups = pd.DataFrame(combinations(tourneyTeams, 2), 
@@ -2888,7 +2890,7 @@ tourneyMatchups.loc[:, 'Season'] = season
 
 
 tourneyMatchups = createMatchups(tourneyMatchups,
-                               statsDF = dataDict['rGamesCTeamSeasonStats'],
+                               statsDF = statsDF,
                                teamID1 = 'TeamID',
                                teamID2 = 'opponentID',
                                teamLabel1 = 'team',
@@ -2982,80 +2984,99 @@ tourneyMatchups.to_csv('{}_{}_best_model_results_all_matchups_{}.csv'.format(sea
 #%% TOURNAMENT PREDICTIONS
 ## ############################################################################
   
+tSlots = dataDict['tSlots']
+tSeeds = dataDict['tSeeds']
+
+bracketPredictions = tournamentPredictions(
+    allPredictions = tourneyMatchups, 
+    tSlots = dataDict['tSlots'], 
+    tSeeds = dataDict['tSeeds']
+    )
 
 
-tSlotsDict = {
-    k: v.set_index(['StrongSeed', 'WeakSeed'])[['Slot']].to_dict('index')
-    for k,v in dataDict['tSlots'].groupby('Season')
-        }
-
-
-tSeedsDict = {
-    k: dict(v[['TeamID', 'Seed']].values.tolist())
-    for k,v in dataDict['tSeeds'].groupby('Season')
-        }
-
- 
-tourneyMatchups.loc[:, 'StrongSeed'] = None
-tourneyMatchups.loc[:, 'WeakSeed'] = None 
-tourneyMatchups.loc[:, 'Slot'] = None
-tourneyMatchups.loc[:, 'complete'] = False
-
-
-
-tourneyMatchups.loc[:, 'StrongSeed'] = [
-    min(tSeedsDict[season].get(teamID),
-        tSeedsDict[season].get(opponentID)
-        ) 
-    if slot == None else StrongSeed
-    for season, teamID, opponentID, StrongSeed, slot in 
-    tourneyMatchups[['Season', 'TeamID', 'opponentID', 'StrongSeed', 'Slot']].values.tolist()
+def tournamentPredictions(allPredictions, tSlots, tSeeds):
     
-    ]
+    tSlotsDict = {
+        k: v.set_index(['StrongSeed', 'WeakSeed'])[['Slot']].to_dict('index')
+        for k,v in tSlots.groupby('Season')
+            }
+    
+    
+    tSeedsDict = {
+        k: dict(v[['TeamID', 'Seed']].values.tolist())
+        for k,v in tSeeds.groupby('Season')
+            }
+    
+    
+    allSeasons = list(set(allPredictions['Season'].values.tolist()))
+    
+    allSeasonsGameCount = sum(
+        [len(tSlotsDict[season]) for season in allSeasons]
+        )
+    
+    allPredictions.loc[:, 'StrongSeed'] = None
+    allPredictions.loc[:, 'WeakSeed'] = None 
+    allPredictions.loc[:, 'Slot'] = None
+    allPredictions.loc[:, 'complete'] = False
+    
+    
+    while allPredictions['complete'].sum() < allSeasonsGameCount:
+    
+        allPredictions.loc[:, 'StrongSeed'] = [
+            min(tSeedsDict[season].get(teamID),
+                tSeedsDict[season].get(opponentID)
+                ) 
+            if slot == None else StrongSeed
+            for season, teamID, opponentID, StrongSeed, slot in 
+            allPredictions[['Season', 'TeamID', 'opponentID', 'StrongSeed', 'Slot']].values.tolist()
+            
+            ]
+        
+        
+        allPredictions.loc[:, 'WeakSeed'] = [
+            max(tSeedsDict[season].get(teamID),
+                tSeedsDict[season].get(opponentID)
+                ) 
+            if slot == None else WeakSeed
+            for season, teamID, opponentID, WeakSeed, slot in 
+            allPredictions[['Season', 'TeamID', 'opponentID', 'WeakSeed', 'Slot']].values.tolist()
+            ]
+        
+        
+        
+        allPredictions.loc[:, 'Slot'] = [
+            tSlotsDict[season].pop((StrongSeed, WeakSeed), 
+                                   {'Slot' : slot}
+                                   ).get('Slot')
+            for season, StrongSeed, WeakSeed, slot in 
+            allPredictions[['Season', 'StrongSeed', 'WeakSeed', 'Slot']].values.tolist()
+            ]
+        
+        
+        
+        
+        [tSeedsDict[season].update({TeamID : slot}) 
+         for season, TeamID, slot, complete in
+         allPredictions[['Season', 'winner', 'Slot', 'complete']].values.tolist()
+         if (slot != None) & (complete == False)
+             ]
+        
+        
+        
+        allPredictions.loc[:, 'complete'] = [
+            True if slot != None else False
+            for slot in tourneyMatchups['Slot'].values.tolist()
+            ]
+    
+    
+    
+    bracketPredictions = allPredictions[allPredictions['complete']]
 
-
-tourneyMatchups.loc[:, 'WeakSeed'] = [
-    max(tSeedsDict[season].get(teamID),
-        tSeedsDict[season].get(opponentID)
-        ) 
-    if slot == None else WeakSeed
-    for season, teamID, opponentID, WeakSeed, slot in 
-    tourneyMatchups[['Season', 'TeamID', 'opponentID', 'WeakSeed', 'Slot']].values.tolist()
-    ]
-
-
-
-tourneyMatchups.loc[:, 'Slot'] = [
-    tSlotsDict[season].pop((StrongSeed, WeakSeed), 
-                           {'Slot' : slot}
-                           ).get('Slot')
-    for season, StrongSeed, WeakSeed, slot in 
-    tourneyMatchups[['Season', 'StrongSeed', 'WeakSeed', 'Slot']].values.tolist()
-    ]
-
-
-
-
-[tSeedsDict[season].update({TeamID : slot}) 
- for season, TeamID, slot, complete in
- tourneyMatchups[['Season', 'winner', 'Slot', 'complete']].values.tolist()
- if (slot != None) & (complete == False)
-     ]
-
-
-
-tourneyMatchups.loc[:, 'complete'] = [
-    True if slot != None else False
-    for slot in tourneyMatchups['Slot'].values.tolist()
-    ]
-
-
-
-x = tourneyMatchups[tourneyMatchups['complete']]
-
-
+    return bracketPredictions
 
 #%%
+
+
 
 # Year for predictions
 yr = 2019
