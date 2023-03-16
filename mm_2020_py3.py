@@ -2653,33 +2653,33 @@ pipe = Pipeline([
 
 
 paramGrid = [
-#     {'mdl' : [ExtraTreesClassifier(n_estimators = 50,
-#                                   n_jobs = -1,
-#                                   random_state = 1127), 
-#               RandomForestClassifier(random_state = 1127,
-#                                     n_estimators = 50,
-#                                     n_jobs = -1,
-#                                     verbose = 0),
-#               GradientBoostingClassifier(n_estimators = 50,
-#                                         random_state = 1127)
-#               ],                        
-#     'mdl__min_samples_split' : np.arange(.005, .1, .01),
-#     'mdl__min_samples_leaf' : range(2, 11, 4),
-# #                 'mdl__n_estimators' : [25, 100, 200]
-#         },
+    {'mdl' : [ExtraTreesClassifier(n_estimators = 50,
+                                  n_jobs = -1,
+                                  random_state = 1127), 
+              RandomForestClassifier(random_state = 1127,
+                                    n_estimators = 50,
+                                    n_jobs = -1,
+                                    verbose = 0),
+              GradientBoostingClassifier(n_estimators = 50,
+                                        random_state = 1127)
+              ],                        
+    'mdl__min_samples_split' : np.arange(.005, .1, .01),
+    'mdl__min_samples_leaf' : list(range(2, 11, 4)),
+#                 'mdl__n_estimators' : [25, 100, 200]
+        },
                 
             {'mdl' : [LogisticRegression(random_state = 1127)],
              'mdl__C' : list(map(lambda i: 10**i, range(-2,2)))
                 },
                 
-            # {'mdl' : [SVC(probability = True)],
-            #  'mdl__C' : map(lambda i: 10**i, range(-1,4)),
-            #  'mdl__gamma' : map(lambda i: 10**i, range(-4,1))
-            #     },
+            {'mdl' : [SVC(probability = True)],
+              'mdl__C' : list(map(lambda i: 10**i, range(-1,4))),
+              'mdl__gamma' : list(map(lambda i: 10**i, range(-4,1)))
+                },
                 
-            # {'mdl' : [KNeighborsClassifier()],
-            #  'mdl__n_neighbors' : range(3, 15, 2)
-            #     }
+            {'mdl' : [KNeighborsClassifier()],
+              'mdl__n_neighbors' : range(3, 15, 2)
+                }
             ]
 
 # Run grid search on modeling pipeline
