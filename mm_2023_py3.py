@@ -1024,6 +1024,89 @@ def independentColumnsFilter(df, excludeCols = [], includeCols = []):
     return indCols
 
 
+
+def tournamentPredictions(allPredictions, tSlots, tSeeds):
+    
+    tSlotsDict = {
+        k: v.set_index(['StrongSeed', 'WeakSeed'])[['Slot']].to_dict('index')
+        for k,v in tSlots.groupby('Season')
+            }
+    
+    
+    tSeedsDict = {
+        k: dict(v[['TeamID', 'Seed']].values.tolist())
+        for k,v in tSeeds.groupby('Season')
+            }
+    
+    
+    allSeasons = list(set(allPredictions['Season'].values.tolist()))
+    
+    allSeasonsGameCount = sum(
+        [len(tSlotsDict[season]) for season in allSeasons]
+        )
+    
+    allPredictions.loc[:, 'StrongSeed'] = None
+    allPredictions.loc[:, 'WeakSeed'] = None 
+    allPredictions.loc[:, 'Slot'] = None
+    allPredictions.loc[:, 'complete'] = False
+    
+    
+    while allPredictions['complete'].sum() < allSeasonsGameCount:
+    
+        allPredictions.loc[:, 'StrongSeed'] = [
+            min(tSeedsDict[season].get(teamID),
+                tSeedsDict[season].get(opponentID)
+                ) 
+            if slot == None else StrongSeed
+            for season, teamID, opponentID, StrongSeed, slot in 
+            allPredictions[['Season', 'TeamID', 'opponentID', 'StrongSeed', 'Slot']].values.tolist()
+            
+            ]
+        
+        
+        allPredictions.loc[:, 'WeakSeed'] = [
+            max(tSeedsDict[season].get(teamID),
+                tSeedsDict[season].get(opponentID)
+                ) 
+            if slot == None else WeakSeed
+            for season, teamID, opponentID, WeakSeed, slot in 
+            allPredictions[['Season', 'TeamID', 'opponentID', 'WeakSeed', 'Slot']].values.tolist()
+            ]
+        
+        
+        
+        allPredictions.loc[:, 'Slot'] = [
+            tSlotsDict[season].pop((StrongSeed, WeakSeed), 
+                                   {'Slot' : slot}
+                                   ).get('Slot')
+            for season, StrongSeed, WeakSeed, slot in 
+            allPredictions[['Season', 'StrongSeed', 'WeakSeed', 'Slot']].values.tolist()
+            ]
+        
+        
+        
+        
+        [tSeedsDict[season].update({TeamID : slot}) 
+         for season, TeamID, slot, complete in
+         allPredictions[['Season', 'winner', 'Slot', 'complete']].values.tolist()
+         if (slot != None) & (complete == False)
+             ]
+        
+        
+        
+        allPredictions.loc[:, 'complete'] = [
+            True if slot != None else False
+            for slot in tourneyMatchups['Slot'].values.tolist()
+            ]
+    
+    
+    
+    bracketPredictions = allPredictions[allPredictions['complete']]
+    
+    bracketPredictions['winnerName'] = []
+
+    return bracketPredictions
+
 #%% ENVIRONMENT SETUP
 ## ###########################################################################
 
@@ -2976,7 +3059,11 @@ tourneyMatchups.loc[:, 'winner'] = [
     tourneyMatchups[['teamWinProb', 'TeamID', 'opponentID']].values.tolist()
     ]
 
-
+tourneyMatchups.loc[:, 'winnerName'] = [
+    teamName if teamID == winner else oppName
+    for teamID, winner, teamName, oppName in
+    tourneyMatchups[['TeamID', 'winner', 'TeamName', 'opponentName']].values.tolist()
+    ]
 
 tourneyMatchups.to_csv('{}_{}_best_model_results_all_matchups_{}.csv'.format(season, df, 
                            datetime.strftime(datetime.now(), '%Y_%m_%d')), index = False) 
@@ -2997,85 +3084,11 @@ bracketPredictions = tournamentPredictions(
     )
 
 
-def tournamentPredictions(allPredictions, tSlots, tSeeds):
-    
-    tSlotsDict = {
-        k: v.set_index(['StrongSeed', 'WeakSeed'])[['Slot']].to_dict('index')
-        for k,v in tSlots.groupby('Season')
-            }
-    
-    
-    tSeedsDict = {
-        k: dict(v[['TeamID', 'Seed']].values.tolist())
-        for k,v in tSeeds.groupby('Season')
-            }
-    
-    
-    allSeasons = list(set(allPredictions['Season'].values.tolist()))
-    
-    allSeasonsGameCount = sum(
-        [len(tSlotsDict[season]) for season in allSeasons]
-        )
-    
-    allPredictions.loc[:, 'StrongSeed'] = None
-    allPredictions.loc[:, 'WeakSeed'] = None 
-    allPredictions.loc[:, 'Slot'] = None
-    allPredictions.loc[:, 'complete'] = False
-    
-    
-    while allPredictions['complete'].sum() < allSeasonsGameCount:
-    
-        allPredictions.loc[:, 'StrongSeed'] = [
-            min(tSeedsDict[season].get(teamID),
-                tSeedsDict[season].get(opponentID)
-                ) 
-            if slot == None else StrongSeed
-            for season, teamID, opponentID, StrongSeed, slot in 
-            allPredictions[['Season', 'TeamID', 'opponentID', 'StrongSeed', 'Slot']].values.tolist()
-            
-            ]
-        
-        
-        allPredictions.loc[:, 'WeakSeed'] = [
-            max(tSeedsDict[season].get(teamID),
-                tSeedsDict[season].get(opponentID)
-                ) 
-            if slot == None else WeakSeed
-            for season, teamID, opponentID, WeakSeed, slot in 
-            allPredictions[['Season', 'TeamID', 'opponentID', 'WeakSeed', 'Slot']].values.tolist()
-            ]
-        
-        
-        
-        allPredictions.loc[:, 'Slot'] = [
-            tSlotsDict[season].pop((StrongSeed, WeakSeed), 
-                                   {'Slot' : slot}
-                                   ).get('Slot')
-            for season, StrongSeed, WeakSeed, slot in 
-            allPredictions[['Season', 'StrongSeed', 'WeakSeed', 'Slot']].values.tolist()
-            ]
-        
-        
-        
-        
-        [tSeedsDict[season].update({TeamID : slot}) 
-         for season, TeamID, slot, complete in
-         allPredictions[['Season', 'winner', 'Slot', 'complete']].values.tolist()
-         if (slot != None) & (complete == False)
-             ]
-        
-        
-        
-        allPredictions.loc[:, 'complete'] = [
-            True if slot != None else False
-            for slot in tourneyMatchups['Slot'].values.tolist()
-            ]
-    
-    
-    
-    bracketPredictions = allPredictions[allPredictions['complete']]
+bracketPredictions.to_csv('{}_{}_best_model_results_bracket_{}.csv'.format(season, df, 
+                           datetime.strftime(datetime.now(), '%Y_%m_%d')), index = False) 
 
-    return bracketPredictions
+
+
 
 
 
