@@ -1600,7 +1600,7 @@ logProcessTime('handle missing data', timeLog)
 #%% STRENGTH METRICS
 ## ############################################################################
 
-df = 'rGamesC'
+df = 'rGamesD'
 
 # Create matchup stats using team season statistics
 matchups = createMatchups(matchupDF = dataDict['{}singleTeam'.format(df)],
@@ -2526,8 +2526,8 @@ testTrainSplit = 0.2
 modelResults, featureRankAll = list(), list()
 
 
-for df in ('tGamesC', 
-           #'tGamesD'
+for df in ('tGamesD', 
+           #'tGamesC'
            ):
 
     modelResults, featureRankAll = list(), list()
@@ -2712,7 +2712,7 @@ modelCols = list(
 #%% MODEL DEVELOPMENT & GRID SEARCH
 ## ############################################################################
 
-df = 'tGamesC'
+df = 'tGamesD'
 
 modelDict = {}
 
